@@ -1,0 +1,22 @@
+[package]
+name = "supernova"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+askama = "0.12.1"
+askama_axum = "0.4.0"
+axum = "0.7.9"
+axum-extra = { version = "0.9.6", features = ["cookie"] }
+bitwarden = "1.0.0"
+dotenvy = "0.15.7"
+libsql = "0.6.0"
+nanoid = "0.4.0"
+serde = { version = "1.0.215", features = ["derive"] }
+thiserror = "2.0.3"
+time = "0.3.36"
+tokio = { version = "1.41.1", features = ["full"] }
+tower-http = { version = "0.6.2", features = ["fs"] }
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+uuid = "1.11.0"
