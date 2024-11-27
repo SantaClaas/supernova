@@ -2,10 +2,7 @@ use std::{env, sync::Arc};
 
 use bitwarden::{
     auth::login::AccessTokenLoginRequest,
-    secrets_manager::{
-        secrets::{SecretGetRequest, SecretsGetRequest},
-        ClientSecretsExt,
-    },
+    secrets_manager::{secrets::SecretGetRequest, ClientSecretsExt},
     Client,
 };
 use thiserror::Error;
