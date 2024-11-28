@@ -6,15 +6,18 @@ edition = "2021"
 [dependencies]
 askama = "0.12.1"
 askama_axum = "0.4.0"
-axum = "0.7.9"
-axum-extra = { version = "0.9.6", features = ["cookie"] }
+axum = { version = "0.7.9", features = [] }
+axum-extra = { version = "0.9.6", features = ["cookie", "cookie-private"] }
+base64 = "0.22.1"
 bitwarden = "1.0.0"
+cookie = "0.18.1"
 dotenvy = "0.15.7"
 libsql = "0.6.0"
 nanoid = "0.4.0"
+postcard = { version = "1.1.0", features = ["alloc"], default-features = false }
 serde = { version = "1.0.215", features = ["derive"] }
 thiserror = "2.0.3"
-time = "0.3.36"
+time = { version = "0.3.36", features = ["serde"] }
 tokio = { version = "1.41.1", features = ["full"] }
 tower-http = { version = "0.6.2", features = ["fs"] }
 tracing = "0.1.40"

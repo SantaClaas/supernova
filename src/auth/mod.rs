@@ -1,13 +1,23 @@
+mod authenticated_user;
+pub(crate) mod cookie;
+
+pub(super) use authenticated_user::AuthenticatedUser;
+
 use std::sync::Arc;
 
-use askama_axum::{IntoResponse, Template};
-use axum::{extract::State, http::StatusCode, response::Redirect, Form};
-use axum_extra::extract::{
-    cookie::{Cookie, SameSite},
-    CookieJar,
+use askama_axum::Template;
+use axum::{
+    extract::State,
+    http::StatusCode,
+    response::{IntoResponse, Redirect, Response},
+    Form,
 };
-use nanoid::nanoid;
+use axum_extra::extract::{
+    cookie::{Key, SameSite},
+    PrivateCookieJar,
+};
 use serde::Deserialize;
+use thiserror::Error;
 
 use crate::AppState;
 
@@ -24,30 +34,44 @@ pub(super) struct SignInRequest {
     secret: Arc<str>,
 }
 
-const SESSION_LIFETIME: time::Duration = time::Duration::days(30);
+#[derive(Error, Debug)]
+pub(super) enum CreateSignInError {
+    #[error("Bad secret")]
+    BadSecret,
+    #[error("Error building cookie {0}")]
+    BuildCookieError(#[from] postcard::Error),
+}
+
+impl IntoResponse for CreateSignInError {
+    fn into_response(self) -> Response {
+        match self {
+            CreateSignInError::BadSecret => StatusCode::FORBIDDEN.into_response(),
+            CreateSignInError::BuildCookieError(_) => {
+                StatusCode::INTERNAL_SERVER_ERROR.into_response()
+            }
+        }
+    }
+}
 
 pub(super) async fn create_sign_in(
-    State(AppState { secrets }): State<AppState>,
-    jar: CookieJar,
+    State(AppState { secrets, .. }): State<AppState>,
+    jar: PrivateCookieJar<Key>,
     Form(request): Form<SignInRequest>,
-) -> impl IntoResponse {
+) -> Result<Response, CreateSignInError> {
     if request.secret != secrets.user_secret {
-        return StatusCode::FORBIDDEN.into_response();
+        return Err(CreateSignInError::BadSecret);
     }
 
-    let session_id = nanoid!();
-    let expires_at = time::OffsetDateTime::now_utc() + SESSION_LIFETIME;
     // Set session cookie
     // The cookie does not need to be encrypted as it doesn't contain any sensitive information
-    let cookie = Cookie::build(("session", session_id))
+    let cookie = cookie::Session::build()?
         .path("/")
         .secure(true)
         // Tell browsers to not allow JavaScript to access the cookie. Prevents some XSS attacks
         // (JS can still indirectly find out if user is authenticated by trying to access authenticated endpoints)
         .http_only(true)
         // Prevents CRSF attack
-        .same_site(SameSite::Strict)
-        .expires(expires_at);
+        .same_site(SameSite::Strict);
 
-    (jar.add(cookie), Redirect::to("/")).into_response()
+    Ok((jar.add(cookie), Redirect::to("/")).into_response())
 }

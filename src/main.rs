@@ -5,6 +5,7 @@ mod index;
 
 use std::net::Ipv4Addr;
 
+use auth::cookie::{self, Key};
 use axum::routing::get;
 use axum::Router;
 use dotenvy::dotenv;
@@ -17,6 +18,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 #[derive(Clone)]
 pub(crate) struct AppState {
     pub(crate) secrets: Secrets,
+    pub(crate) key: cookie::Key,
 }
 
 #[tokio::main]
@@ -32,7 +34,10 @@ async fn main() {
     dotenv().ok();
 
     let secrets = secrets::setup().await.unwrap();
-    let state = AppState { secrets };
+    let state = AppState {
+        secrets,
+        key: Key::new().expect("Error accessing random"),
+    };
 
     let app = Router::new()
         .route("/", get(index::get))
