@@ -578,5 +578,96 @@ mod test {
             // Assert
             assert_eq!(expected_ciphertext, encoded)
         }
+
+        #[test]
+        fn can_produce_rfc8291_section_5_result() {
+            // Arrange
+            let expected_result =
+                "DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27ml\
+                mlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A_yl95bQpu6cVPT\
+                pK4Mqgkf1CXztLVBSt2Ks3oZwbuwXPXLWyouBWLVWGNWQexSgSxsj_Qulcy4a-fN";
+
+            let salt = BASE64_URL_SAFE_NO_PAD.decode(SALT).unwrap();
+
+            let application_server_private_key = BASE64_URL_SAFE_NO_PAD
+                .decode(APPLICATION_SERVER_PRIVATE_KEY)
+                .unwrap();
+
+            let application_server_public_key = BASE64_URL_SAFE_NO_PAD
+                .decode(APPLICATION_SERVER_PUBLIC_KEY)
+                .unwrap();
+
+            let user_agent_public_key = BASE64_URL_SAFE_NO_PAD
+                .decode(USER_AGENT_PUBLIC_KEY)
+                .unwrap();
+
+            let authentication_secret = BASE64_URL_SAFE_NO_PAD
+                .decode(AUTHENTICATION_SECRET)
+                .unwrap();
+
+            // Act
+            let ecdh_secret =
+                create_shared_ecdh_secret(&application_server_private_key, &user_agent_public_key);
+            let pseudo_random_key = create_pseudo_random_key(&authentication_secret, &ecdh_secret);
+
+            let key_info = create_key_info(&application_server_public_key, &user_agent_public_key);
+            //TODO make fixed length
+            let mut key_info = Vec::from(key_info.as_ref());
+            key_info.push(PADDING_DELIMITER);
+
+            let input_keying_material = libcrux_hmac::hmac(
+                libcrux_hmac::Algorithm::Sha256,
+                &pseudo_random_key,
+                &key_info,
+                Some(32),
+            );
+
+            let pseudo_random_key = libcrux_hmac::hmac(
+                libcrux_hmac::Algorithm::Sha256,
+                &salt,
+                &input_keying_material,
+                None,
+            );
+            //TODO make fixed length
+            let mut key_info = Vec::from(CONTENT_ENCODING_KEY_INFO);
+            key_info.push(PADDING_DELIMITER);
+
+            let content_encryption_key = &libcrux_hmac::hmac(
+                libcrux_hmac::Algorithm::Sha256,
+                &pseudo_random_key,
+                &key_info,
+                Some(16),
+            );
+
+            //TODO make fixed length
+            let mut plaintext = Vec::from(PLAINTEXT);
+            plaintext.push(LAST_PADDING_DELIMITER);
+
+            //TODO make fixed length
+            let mut key_info = Vec::from(NONCE_INFO);
+            key_info.push(PADDING_DELIMITER);
+
+            let nonce = &libcrux_hmac::hmac(
+                libcrux_hmac::Algorithm::Sha256,
+                &pseudo_random_key,
+                &key_info,
+                Some(12),
+            );
+
+            assert_eq!(12, nonce.len());
+            let ciphertext = encrypt_plain_text(content_encryption_key, &plaintext, nonce);
+            let header = create_content_encoding_header(
+                &salt.try_into().unwrap(),
+                &RECORD_SIZE,
+                &application_server_public_key,
+            );
+
+            let mut buffer = Vec::from(header.as_ref());
+            buffer.extend_from_slice(ciphertext.as_ref());
+            let encoded = BASE64_URL_SAFE_NO_PAD.encode(buffer);
+
+            // Assert
+            assert_eq!(expected_result, encoded)
+        }
     }
 }
