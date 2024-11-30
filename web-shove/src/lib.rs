@@ -28,10 +28,8 @@ fn create_pseudo_random_key(authentication_secret: &[u8], ecdh_secret: &[u8]) ->
 
 fn create_shared_ecdh_secret(
     application_server_private_key: &[u8; 32],
-    user_agent_public_key: &[u8],
+    user_agent_public_key: &[u8; 64],
 ) -> [u8; 32] {
-    let user_agent_public_key: &[u8; 64] = &user_agent_public_key[1..].try_into().unwrap();
-
     let application_server_private_key =
         libcrux_ecdh::P256PrivateKey::from(application_server_private_key);
 
@@ -120,7 +118,6 @@ mod test {
     /// Using the base64 url encoded values as the RFC uses them and they are subjectively easier to compare
     mod rfc8291 {
         use super::super::*;
-        use aes_gcm::aead::Buffer;
         use base64::prelude::*;
 
         const APPLICATION_SERVER_PRIVATE_KEY: &str = "yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw";
@@ -149,6 +146,8 @@ mod test {
 
             let user_agent_public_key = BASE64_URL_SAFE_NO_PAD
                 .decode(USER_AGENT_PUBLIC_KEY)
+                .unwrap()[1..]
+                .try_into()
                 .unwrap();
 
             // Act
@@ -173,6 +172,8 @@ mod test {
 
             let user_agent_public_key = BASE64_URL_SAFE_NO_PAD
                 .decode(USER_AGENT_PUBLIC_KEY)
+                .unwrap()[1..]
+                .try_into()
                 .unwrap();
 
             let authentication_secret = BASE64_URL_SAFE_NO_PAD
@@ -243,8 +244,11 @@ mod test {
 
             // Act
 
-            let ecdh_secret =
-                create_shared_ecdh_secret(&application_server_private_key, &user_agent_public_key);
+            let ecdh_secret = create_shared_ecdh_secret(
+                &application_server_private_key,
+                user_agent_public_key[1..].try_into().unwrap(),
+            );
+
             let pseudo_random_key = create_pseudo_random_key(&authentication_secret, &ecdh_secret);
 
             let key_info = create_key_info(&application_server_public_key, &user_agent_public_key);
@@ -289,8 +293,10 @@ mod test {
                 .unwrap();
 
             // Act
-            let ecdh_secret =
-                create_shared_ecdh_secret(&application_server_private_key, &user_agent_public_key);
+            let ecdh_secret = create_shared_ecdh_secret(
+                &application_server_private_key,
+                user_agent_public_key[1..].try_into().unwrap(),
+            );
             let pseudo_random_key = create_pseudo_random_key(&authentication_secret, &ecdh_secret);
 
             let key_info = create_key_info(&application_server_public_key, &user_agent_public_key);
@@ -354,8 +360,10 @@ mod test {
 
             // Act
 
-            let ecdh_secret =
-                create_shared_ecdh_secret(&application_server_private_key, &user_agent_public_key);
+            let ecdh_secret = create_shared_ecdh_secret(
+                &application_server_private_key,
+                user_agent_public_key[1..].try_into().unwrap(),
+            );
             let pseudo_random_key = create_pseudo_random_key(&authentication_secret, &ecdh_secret);
 
             let key_info = create_key_info(&application_server_public_key, &user_agent_public_key);
@@ -428,8 +436,10 @@ mod test {
 
             // Act
 
-            let ecdh_secret =
-                create_shared_ecdh_secret(&application_server_private_key, &user_agent_public_key);
+            let ecdh_secret = create_shared_ecdh_secret(
+                &application_server_private_key,
+                user_agent_public_key[1..].try_into().unwrap(),
+            );
             let pseudo_random_key = create_pseudo_random_key(&authentication_secret, &ecdh_secret);
 
             let key_info = create_key_info(&application_server_public_key, &user_agent_public_key);
@@ -535,8 +545,10 @@ mod test {
 
             // Act
 
-            let ecdh_secret =
-                create_shared_ecdh_secret(&application_server_private_key, &user_agent_public_key);
+            let ecdh_secret = create_shared_ecdh_secret(
+                &application_server_private_key,
+                user_agent_public_key[1..].try_into().unwrap(),
+            );
             let pseudo_random_key = create_pseudo_random_key(&authentication_secret, &ecdh_secret);
 
             let key_info = create_key_info(&application_server_public_key, &user_agent_public_key);
@@ -621,8 +633,11 @@ mod test {
                 .unwrap();
 
             // Act
-            let ecdh_secret =
-                create_shared_ecdh_secret(&application_server_private_key, &user_agent_public_key);
+
+            let ecdh_secret = create_shared_ecdh_secret(
+                &application_server_private_key,
+                user_agent_public_key[1..].try_into().unwrap(),
+            );
             let pseudo_random_key = create_pseudo_random_key(&authentication_secret, &ecdh_secret);
 
             let key_info = create_key_info(&application_server_public_key, &user_agent_public_key);
