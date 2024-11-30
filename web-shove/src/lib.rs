@@ -43,7 +43,7 @@ fn create_shared_ecdh_secret(
 
 fn create_key_info(
     application_server_public_key: &[u8; 65],
-    user_agent_public_key: &[u8],
+    user_agent_public_key: &[u8; 65],
 ) -> Rc<[u8]> {
     //TODO this can be fixed length
     let mut key_info = Vec::new();
@@ -207,8 +207,10 @@ mod test {
                 .try_into()
                 .unwrap();
 
-            let user_agent_public_key = BASE64_URL_SAFE_NO_PAD
+            let user_agent_public_key: [u8; 65] = BASE64_URL_SAFE_NO_PAD
                 .decode(USER_AGENT_PUBLIC_KEY)
+                .unwrap()
+                .try_into()
                 .unwrap();
 
             let expected_key_info = "V2ViUHVzaDogaW5mbwAEJXGyvs3942BVG\
@@ -240,8 +242,10 @@ mod test {
                 .try_into()
                 .unwrap();
 
-            let user_agent_public_key = BASE64_URL_SAFE_NO_PAD
+            let user_agent_public_key: [u8; 65] = BASE64_URL_SAFE_NO_PAD
                 .decode(USER_AGENT_PUBLIC_KEY)
+                .unwrap()
+                .try_into()
                 .unwrap();
 
             let authentication_secret = BASE64_URL_SAFE_NO_PAD
@@ -292,8 +296,10 @@ mod test {
                 .try_into()
                 .unwrap();
 
-            let user_agent_public_key = BASE64_URL_SAFE_NO_PAD
+            let user_agent_public_key: [u8; 65] = BASE64_URL_SAFE_NO_PAD
                 .decode(USER_AGENT_PUBLIC_KEY)
+                .unwrap()
+                .try_into()
                 .unwrap();
 
             let authentication_secret = BASE64_URL_SAFE_NO_PAD
@@ -360,8 +366,10 @@ mod test {
                 .try_into()
                 .unwrap();
 
-            let user_agent_public_key = BASE64_URL_SAFE_NO_PAD
+            let user_agent_public_key: [u8; 65] = BASE64_URL_SAFE_NO_PAD
                 .decode(USER_AGENT_PUBLIC_KEY)
+                .unwrap()
+                .try_into()
                 .unwrap();
 
             let authentication_secret = BASE64_URL_SAFE_NO_PAD
@@ -438,8 +446,10 @@ mod test {
                 .try_into()
                 .unwrap();
 
-            let user_agent_public_key = BASE64_URL_SAFE_NO_PAD
+            let user_agent_public_key: [u8; 65] = BASE64_URL_SAFE_NO_PAD
                 .decode(USER_AGENT_PUBLIC_KEY)
+                .unwrap()
+                .try_into()
                 .unwrap();
 
             let authentication_secret = BASE64_URL_SAFE_NO_PAD
@@ -551,8 +561,10 @@ mod test {
                 .try_into()
                 .unwrap();
 
-            let user_agent_public_key = BASE64_URL_SAFE_NO_PAD
+            let user_agent_public_key: [u8; 65] = BASE64_URL_SAFE_NO_PAD
                 .decode(USER_AGENT_PUBLIC_KEY)
+                .unwrap()
+                .try_into()
                 .unwrap();
 
             let authentication_secret = BASE64_URL_SAFE_NO_PAD
@@ -642,8 +654,10 @@ mod test {
                 .try_into()
                 .unwrap();
 
-            let user_agent_public_key = BASE64_URL_SAFE_NO_PAD
+            let user_agent_public_key: [u8; 65] = BASE64_URL_SAFE_NO_PAD
                 .decode(USER_AGENT_PUBLIC_KEY)
+                .unwrap()
+                .try_into()
                 .unwrap();
 
             let authentication_secret = BASE64_URL_SAFE_NO_PAD
