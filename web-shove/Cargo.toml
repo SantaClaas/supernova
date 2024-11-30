@@ -1,0 +1,18 @@
+[package]
+name = "web-shove"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+base64 = "0.22.1"
+getrandom = { version = "0.2.15", features = ["custom"] }
+libcrux-ecdh = "0.0.2-alpha.3"
+libcrux-hkdf = "0.0.2-alpha.3"
+libcrux-hmac = "0.0.2-alpha.3"
+p256 = { version = "0.13.2", features = ["ecdh"] }
+rand = "0.8.5"
+rand_chacha = "0.3.1"
+ring = { version = "0.17.8", features = [
+    "less-safe-getrandom-custom-or-rdrand",
+] }
+thiserror = "2.0.3"
