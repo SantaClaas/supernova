@@ -88,24 +88,19 @@ mod experimental {
     }
 }
 
+const CONTENT_ENCODING_HEADER_LENGTH: usize =
+    SALT_LENGTH + RECORD_SIZE_LENGTH + KEY_ID_LENGTH + PUBLIC_KEY_LENGTH;
 fn create_content_encoding_header(
     salt: &[u8; SALT_LENGTH],
     record_size: &[u8; RECORD_SIZE_LENGTH],
-    key_id: &[u8],
-) -> Rc<[u8]> {
-    let Ok(key_id_length) = key_id.len().try_into() else {
-        todo!("Key id length has to be <= 255")
-    };
-
-    let mut buffer =
-        Vec::with_capacity(SALT_LENGTH + RECORD_SIZE_LENGTH + KEY_ID_LENGTH + key_id.len());
-
-    buffer.extend_from_slice(salt);
-    buffer.extend_from_slice(record_size);
-    buffer.push(key_id_length);
-    buffer.extend_from_slice(key_id);
-
-    buffer.into()
+    key_id: &[u8; PUBLIC_KEY_LENGTH],
+) -> [u8; CONTENT_ENCODING_HEADER_LENGTH] {
+    let mut header = [0; CONTENT_ENCODING_HEADER_LENGTH];
+    header[..SALT_LENGTH].copy_from_slice(salt);
+    header[SALT_LENGTH..SALT_LENGTH + RECORD_SIZE_LENGTH].copy_from_slice(record_size);
+    header[SALT_LENGTH + RECORD_SIZE_LENGTH] = PUBLIC_KEY_LENGTH as u8;
+    header[SALT_LENGTH + RECORD_SIZE_LENGTH + KEY_ID_LENGTH..].copy_from_slice(key_id);
+    header
 }
 
 fn encrypt_plain_text(key: &[u8], plaintext: &[u8], nonce: &[u8]) -> Rc<[u8]> {
