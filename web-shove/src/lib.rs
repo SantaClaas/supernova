@@ -18,13 +18,14 @@ const LAST_PADDING_DELIMITER: u8 = 0x02;
 const PUBLIC_KEY_LENGTH: usize = 65;
 
 //TODO use ring when we know it works and figure out deterministic key generation for testing as it only generates ephemeral keys
-fn create_pseudo_random_key(authentication_secret: &[u8], ecdh_secret: &[u8]) -> Rc<[u8]> {
+fn create_pseudo_random_key(authentication_secret: &[u8; 16], ecdh_secret: &[u8; 32]) -> [u8; 32] {
     libcrux_hkdf::extract(
         libcrux_hkdf::Algorithm::Sha256,
         authentication_secret,
         ecdh_secret,
     )
-    .into()
+    .try_into()
+    .expect("Expected 32 bytes for SHA256")
 }
 
 fn create_shared_ecdh_secret(
@@ -250,6 +251,8 @@ mod test {
 
             let authentication_secret = BASE64_URL_SAFE_NO_PAD
                 .decode(AUTHENTICATION_SECRET)
+                .unwrap()
+                .try_into()
                 .unwrap();
 
             // Act
@@ -304,6 +307,8 @@ mod test {
 
             let authentication_secret = BASE64_URL_SAFE_NO_PAD
                 .decode(AUTHENTICATION_SECRET)
+                .unwrap()
+                .try_into()
                 .unwrap();
 
             // Act
@@ -374,10 +379,11 @@ mod test {
 
             let authentication_secret = BASE64_URL_SAFE_NO_PAD
                 .decode(AUTHENTICATION_SECRET)
+                .unwrap()
+                .try_into()
                 .unwrap();
 
             // Act
-
             let ecdh_secret = create_shared_ecdh_secret(
                 &application_server_private_key,
                 user_agent_public_key[1..].try_into().unwrap(),
@@ -454,10 +460,11 @@ mod test {
 
             let authentication_secret = BASE64_URL_SAFE_NO_PAD
                 .decode(AUTHENTICATION_SECRET)
+                .unwrap()
+                .try_into()
                 .unwrap();
 
             // Act
-
             let ecdh_secret = create_shared_ecdh_secret(
                 &application_server_private_key,
                 user_agent_public_key[1..].try_into().unwrap(),
@@ -569,10 +576,11 @@ mod test {
 
             let authentication_secret = BASE64_URL_SAFE_NO_PAD
                 .decode(AUTHENTICATION_SECRET)
+                .unwrap()
+                .try_into()
                 .unwrap();
 
             // Act
-
             let ecdh_secret = create_shared_ecdh_secret(
                 &application_server_private_key,
                 user_agent_public_key[1..].try_into().unwrap(),
@@ -662,6 +670,8 @@ mod test {
 
             let authentication_secret = BASE64_URL_SAFE_NO_PAD
                 .decode(AUTHENTICATION_SECRET)
+                .unwrap()
+                .try_into()
                 .unwrap();
 
             // Act
