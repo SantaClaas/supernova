@@ -41,13 +41,16 @@ fn create_shared_ecdh_secret(
     shared_ecdh_secret.0[..32].try_into().unwrap()
 }
 
-fn create_key_info(application_server_public_key: &[u8], user_agent_public_key: &[u8]) -> Rc<[u8]> {
+fn create_key_info(
+    application_server_public_key: &[u8; 65],
+    user_agent_public_key: &[u8],
+) -> Rc<[u8]> {
     //TODO this can be fixed length
     let mut key_info = Vec::new();
     key_info.extend_from_slice(KEY_INFO);
     key_info.push(0x00);
-    key_info.extend_from_slice(&user_agent_public_key);
-    key_info.extend_from_slice(&application_server_public_key);
+    key_info.extend_from_slice(user_agent_public_key);
+    key_info.extend_from_slice(application_server_public_key);
     // key_info.push(0x01);
     key_info.into()
 }
@@ -198,8 +201,10 @@ mod test {
         #[test]
         fn can_create_info_for_key_combining() {
             // Arrange
-            let application_server_public_key = BASE64_URL_SAFE_NO_PAD
+            let application_server_public_key: [u8; 65] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PUBLIC_KEY)
+                .unwrap()
+                .try_into()
                 .unwrap();
 
             let user_agent_public_key = BASE64_URL_SAFE_NO_PAD
@@ -211,6 +216,8 @@ mod test {
                  ylkYfpJGmQ22ggCLDgT-M_SrDepxkU21WCP3O1SUj0Ew\
                  bZIHMtu5pZpTKGSCIA5Zent7wmC6HCJ5mFgJkuk5cwAvMBKiiujwa7t45ewP";
 
+            // V2ViUHVzaDogaW5mbwAEJXGyvs3942BVGq8e0PTNNmwRzr5VX4m8t7GGpTM5FzFo7OLr4BhZe9MEebhuPI-OztV3ylkYfpJGmQ22ggCLDgT-M_SrDepxkU21WCP3O1SUj0EwbZIHMtu5pZpTKGSCIA5Zent7wmC6HCJ5mFgJkuk5cwAvMBKiiujwa7t45ewP
+            // V2ViUHVzaDogaW5mbwAEJXGyvs3942BVGq8e0PTNNmwRzr5VX4m8t7GGpTM5FzFo7OLr4BhZe9MEebhuPI-OztV3ylkYfpJGmQ22ggCLDv4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A8
             // Act
             let key_info = create_key_info(&application_server_public_key, &user_agent_public_key);
 
@@ -229,9 +236,10 @@ mod test {
                 .unwrap()
                 .try_into()
                 .unwrap();
-
-            let application_server_public_key = BASE64_URL_SAFE_NO_PAD
+            let application_server_public_key: [u8; 65] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PUBLIC_KEY)
+                .unwrap()
+                .try_into()
                 .unwrap();
 
             let user_agent_public_key = BASE64_URL_SAFE_NO_PAD
@@ -280,8 +288,10 @@ mod test {
                 .try_into()
                 .unwrap();
 
-            let application_server_public_key = BASE64_URL_SAFE_NO_PAD
+            let application_server_public_key: [u8; 65] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PUBLIC_KEY)
+                .unwrap()
+                .try_into()
                 .unwrap();
 
             let user_agent_public_key = BASE64_URL_SAFE_NO_PAD
@@ -346,8 +356,10 @@ mod test {
                 .try_into()
                 .unwrap();
 
-            let application_server_public_key = BASE64_URL_SAFE_NO_PAD
+            let application_server_public_key: [u8; 65] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PUBLIC_KEY)
+                .unwrap()
+                .try_into()
                 .unwrap();
 
             let user_agent_public_key = BASE64_URL_SAFE_NO_PAD
@@ -422,8 +434,10 @@ mod test {
                 .try_into()
                 .unwrap();
 
-            let application_server_public_key = BASE64_URL_SAFE_NO_PAD
+            let application_server_public_key: [u8; 65] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PUBLIC_KEY)
+                .unwrap()
+                .try_into()
                 .unwrap();
 
             let user_agent_public_key = BASE64_URL_SAFE_NO_PAD
@@ -489,8 +503,10 @@ mod test {
                 .try_into()
                 .unwrap();
 
-            let application_server_public_key = BASE64_URL_SAFE_NO_PAD
+            let application_server_public_key: [u8; 65] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PUBLIC_KEY)
+                .unwrap()
+                .try_into()
                 .unwrap();
 
             // Act
@@ -531,8 +547,10 @@ mod test {
                 .try_into()
                 .unwrap();
 
-            let application_server_public_key = BASE64_URL_SAFE_NO_PAD
+            let application_server_public_key: [u8; 65] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PUBLIC_KEY)
+                .unwrap()
+                .try_into()
                 .unwrap();
 
             let user_agent_public_key = BASE64_URL_SAFE_NO_PAD
@@ -620,8 +638,10 @@ mod test {
                 .try_into()
                 .unwrap();
 
-            let application_server_public_key = BASE64_URL_SAFE_NO_PAD
+            let application_server_public_key: [u8; 65] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PUBLIC_KEY)
+                .unwrap()
+                .try_into()
                 .unwrap();
 
             let user_agent_public_key = BASE64_URL_SAFE_NO_PAD
