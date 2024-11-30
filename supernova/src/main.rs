@@ -1,7 +1,6 @@
 mod secrets;
 
 mod auth;
-mod encrypted_content_encoding;
 mod index;
 
 use std::net::Ipv4Addr;
