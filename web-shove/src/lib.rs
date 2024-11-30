@@ -9,12 +9,13 @@ use ring::{
 };
 use thiserror::Error;
 
-const KEY_INFO: &[u8] = b"WebPush: info";
+const KEY_INFO: &[u8; 13] = b"WebPush: info";
 const CONTENT_ENCODING_KEY_INFO: &[u8] = b"Content-Encoding: aes128gcm\0";
 const NONCE_INFO: &[u8] = b"Content-Encoding: nonce\0";
 
 const PADDING_DELIMITER: u8 = 0x01;
 const LAST_PADDING_DELIMITER: u8 = 0x02;
+const PUBLIC_KEY_LENGTH: usize = 65;
 
 //TODO use ring when we know it works and figure out deterministic key generation for testing as it only generates ephemeral keys
 fn create_pseudo_random_key(authentication_secret: &[u8], ecdh_secret: &[u8]) -> Rc<[u8]> {
@@ -41,18 +42,22 @@ fn create_shared_ecdh_secret(
     shared_ecdh_secret.0[..32].try_into().unwrap()
 }
 
+const KEY_INFO_LENGTH: usize = KEY_INFO.len() + 1 + PUBLIC_KEY_LENGTH * 2;
 fn create_key_info(
-    application_server_public_key: &[u8; 65],
-    user_agent_public_key: &[u8; 65],
-) -> Rc<[u8]> {
-    //TODO this can be fixed length
-    let mut key_info = Vec::new();
-    key_info.extend_from_slice(KEY_INFO);
-    key_info.push(0x00);
-    key_info.extend_from_slice(user_agent_public_key);
-    key_info.extend_from_slice(application_server_public_key);
+    application_server_public_key: &[u8; PUBLIC_KEY_LENGTH],
+    user_agent_public_key: &[u8; PUBLIC_KEY_LENGTH],
+) -> [u8; KEY_INFO_LENGTH] {
+    let mut key_info = [0u8; KEY_INFO_LENGTH];
+    key_info[..KEY_INFO.len()].copy_from_slice(KEY_INFO);
+    // This is aleady zeroed
+    // key_info[KEY_INFO.len()] = 0x00;
+    key_info[KEY_INFO.len() + 1..KEY_INFO.len() + 1 + PUBLIC_KEY_LENGTH]
+        .copy_from_slice(user_agent_public_key);
+    key_info[KEY_INFO.len() + 1 + PUBLIC_KEY_LENGTH..]
+        .copy_from_slice(application_server_public_key);
     // key_info.push(0x01);
-    key_info.into()
+
+    key_info
 }
 
 const SALT_LENGTH: usize = 16;
@@ -201,13 +206,13 @@ mod test {
         #[test]
         fn can_create_info_for_key_combining() {
             // Arrange
-            let application_server_public_key: [u8; 65] = BASE64_URL_SAFE_NO_PAD
+            let application_server_public_key: [u8; PUBLIC_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PUBLIC_KEY)
                 .unwrap()
                 .try_into()
                 .unwrap();
 
-            let user_agent_public_key: [u8; 65] = BASE64_URL_SAFE_NO_PAD
+            let user_agent_public_key: [u8; PUBLIC_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
                 .decode(USER_AGENT_PUBLIC_KEY)
                 .unwrap()
                 .try_into()
@@ -236,13 +241,13 @@ mod test {
                 .unwrap()
                 .try_into()
                 .unwrap();
-            let application_server_public_key: [u8; 65] = BASE64_URL_SAFE_NO_PAD
+            let application_server_public_key: [u8; PUBLIC_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PUBLIC_KEY)
                 .unwrap()
                 .try_into()
                 .unwrap();
 
-            let user_agent_public_key: [u8; 65] = BASE64_URL_SAFE_NO_PAD
+            let user_agent_public_key: [u8; PUBLIC_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
                 .decode(USER_AGENT_PUBLIC_KEY)
                 .unwrap()
                 .try_into()
@@ -290,13 +295,13 @@ mod test {
                 .try_into()
                 .unwrap();
 
-            let application_server_public_key: [u8; 65] = BASE64_URL_SAFE_NO_PAD
+            let application_server_public_key: [u8; PUBLIC_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PUBLIC_KEY)
                 .unwrap()
                 .try_into()
                 .unwrap();
 
-            let user_agent_public_key: [u8; 65] = BASE64_URL_SAFE_NO_PAD
+            let user_agent_public_key: [u8; PUBLIC_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
                 .decode(USER_AGENT_PUBLIC_KEY)
                 .unwrap()
                 .try_into()
@@ -360,13 +365,13 @@ mod test {
                 .try_into()
                 .unwrap();
 
-            let application_server_public_key: [u8; 65] = BASE64_URL_SAFE_NO_PAD
+            let application_server_public_key: [u8; PUBLIC_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PUBLIC_KEY)
                 .unwrap()
                 .try_into()
                 .unwrap();
 
-            let user_agent_public_key: [u8; 65] = BASE64_URL_SAFE_NO_PAD
+            let user_agent_public_key: [u8; PUBLIC_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
                 .decode(USER_AGENT_PUBLIC_KEY)
                 .unwrap()
                 .try_into()
@@ -440,13 +445,13 @@ mod test {
                 .try_into()
                 .unwrap();
 
-            let application_server_public_key: [u8; 65] = BASE64_URL_SAFE_NO_PAD
+            let application_server_public_key: [u8; PUBLIC_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PUBLIC_KEY)
                 .unwrap()
                 .try_into()
                 .unwrap();
 
-            let user_agent_public_key: [u8; 65] = BASE64_URL_SAFE_NO_PAD
+            let user_agent_public_key: [u8; PUBLIC_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
                 .decode(USER_AGENT_PUBLIC_KEY)
                 .unwrap()
                 .try_into()
@@ -511,7 +516,7 @@ mod test {
                 .try_into()
                 .unwrap();
 
-            let application_server_public_key: [u8; 65] = BASE64_URL_SAFE_NO_PAD
+            let application_server_public_key: [u8; PUBLIC_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PUBLIC_KEY)
                 .unwrap()
                 .try_into()
@@ -555,13 +560,13 @@ mod test {
                 .try_into()
                 .unwrap();
 
-            let application_server_public_key: [u8; 65] = BASE64_URL_SAFE_NO_PAD
+            let application_server_public_key: [u8; PUBLIC_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PUBLIC_KEY)
                 .unwrap()
                 .try_into()
                 .unwrap();
 
-            let user_agent_public_key: [u8; 65] = BASE64_URL_SAFE_NO_PAD
+            let user_agent_public_key: [u8; PUBLIC_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
                 .decode(USER_AGENT_PUBLIC_KEY)
                 .unwrap()
                 .try_into()
@@ -648,13 +653,13 @@ mod test {
                 .try_into()
                 .unwrap();
 
-            let application_server_public_key: [u8; 65] = BASE64_URL_SAFE_NO_PAD
+            let application_server_public_key: [u8; PUBLIC_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PUBLIC_KEY)
                 .unwrap()
                 .try_into()
                 .unwrap();
 
-            let user_agent_public_key: [u8; 65] = BASE64_URL_SAFE_NO_PAD
+            let user_agent_public_key: [u8; PUBLIC_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
                 .decode(USER_AGENT_PUBLIC_KEY)
                 .unwrap()
                 .try_into()
