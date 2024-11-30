@@ -27,12 +27,9 @@ fn create_pseudo_random_key(authentication_secret: &[u8], ecdh_secret: &[u8]) ->
 }
 
 fn create_shared_ecdh_secret(
-    application_server_private_key: &[u8],
+    application_server_private_key: &[u8; 32],
     user_agent_public_key: &[u8],
 ) -> [u8; 32] {
-    let application_server_private_key: &[u8; 32] =
-        application_server_private_key.try_into().unwrap();
-
     let user_agent_public_key: &[u8; 64] = &user_agent_public_key[1..].try_into().unwrap();
 
     let application_server_private_key =
@@ -167,8 +164,11 @@ mod test {
         fn can_crate_pseudo_random_key_for_combining() {
             // Arrange
             const EXPECTED_PSEUDO_RANDOM_KEY: &str = "Snr3JMxaHVDXHWJn5wdC52WjpCtd2EIEGBykDcZW32k";
-            let application_server_private_key = BASE64_URL_SAFE_NO_PAD
+
+            let application_server_private_key: [u8; 32] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PRIVATE_KEY)
+                .unwrap()
+                .try_into()
                 .unwrap();
 
             let user_agent_public_key = BASE64_URL_SAFE_NO_PAD
@@ -223,10 +223,12 @@ mod test {
         fn can_crate_input_keying_material_for_content_encryption_key_derivation() {
             // Arrange
             let expected_input_keying_material = "S4lYMb_L0FxCeq0WhDx813KgSYqU26kOyzWUdsXYyrg";
-
-            let application_server_private_key = BASE64_URL_SAFE_NO_PAD
+            let application_server_private_key: [u8; 32] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PRIVATE_KEY)
+                .unwrap()
+                .try_into()
                 .unwrap();
+
             let application_server_public_key = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PUBLIC_KEY)
                 .unwrap();
@@ -268,9 +270,12 @@ mod test {
             let expected_pseudo_random_key: &str = "09_eUZGrsvxChDCGRCdkLiDXrReGOEVeSCdCcPBSJSc";
             let salt = BASE64_URL_SAFE_NO_PAD.decode(SALT).unwrap();
 
-            let application_server_private_key = BASE64_URL_SAFE_NO_PAD
+            let application_server_private_key: [u8; 32] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PRIVATE_KEY)
+                .unwrap()
+                .try_into()
                 .unwrap();
+
             let application_server_public_key = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PUBLIC_KEY)
                 .unwrap();
@@ -329,9 +334,12 @@ mod test {
             let expected_content_encryption_key = "oIhVW04MRdy2XN9CiKLxTg";
             let salt = BASE64_URL_SAFE_NO_PAD.decode(SALT).unwrap();
 
-            let application_server_private_key = BASE64_URL_SAFE_NO_PAD
+            let application_server_private_key: [u8; 32] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PRIVATE_KEY)
+                .unwrap()
+                .try_into()
                 .unwrap();
+
             let application_server_public_key = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PUBLIC_KEY)
                 .unwrap();
@@ -400,9 +408,12 @@ mod test {
             let expected_nonce = "4h_95klXJ5E_qnoN";
             let salt = BASE64_URL_SAFE_NO_PAD.decode(SALT).unwrap();
 
-            let application_server_private_key = BASE64_URL_SAFE_NO_PAD
+            let application_server_private_key: [u8; 32] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PRIVATE_KEY)
+                .unwrap()
+                .try_into()
                 .unwrap();
+
             let application_server_public_key = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PUBLIC_KEY)
                 .unwrap();
@@ -504,8 +515,10 @@ mod test {
                 "8pfeW0KbunFT06SuDKoJH9Ql87S1QUrdirN6GcG7sFz1y1sqLgVi1VhjVkHsUoEsbI_0LpXMuGvnzQ";
             let salt = BASE64_URL_SAFE_NO_PAD.decode(SALT).unwrap();
 
-            let application_server_private_key = BASE64_URL_SAFE_NO_PAD
+            let application_server_private_key: [u8; 32] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PRIVATE_KEY)
+                .unwrap()
+                .try_into()
                 .unwrap();
 
             let application_server_public_key = BASE64_URL_SAFE_NO_PAD
@@ -589,8 +602,10 @@ mod test {
 
             let salt = BASE64_URL_SAFE_NO_PAD.decode(SALT).unwrap();
 
-            let application_server_private_key = BASE64_URL_SAFE_NO_PAD
+            let application_server_private_key: [u8; 32] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PRIVATE_KEY)
+                .unwrap()
+                .try_into()
                 .unwrap();
 
             let application_server_public_key = BASE64_URL_SAFE_NO_PAD
