@@ -2,8 +2,10 @@ mod secrets;
 
 mod auth;
 mod index;
+mod notification;
 
 use std::net::Ipv4Addr;
+use std::path::Path;
 
 use auth::cookie::{self, Key};
 use axum::routing::get;
@@ -33,6 +35,19 @@ async fn main() {
 
     dotenv().ok();
 
+    let public_path = if cfg!(debug_assertions) {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("public")
+    } else {
+        std::env::current_exe().unwrap_or_else(|error| {
+            tracing::warn!(
+                "Could not get current executable path to find public directory to serve files. Files will likely be served from relative public folder from current working directory. Causing Error: {}",
+                error
+            );
+            "public".into()
+        })
+    };
+
+    // tracing::info!("Directory {:?} {:?}", public_path,);
     let secrets = secrets::setup().await.unwrap();
     let state = AppState {
         secrets,
@@ -42,7 +57,7 @@ async fn main() {
     let app = Router::new()
         .route("/", get(index::get))
         .route("/signin", get(auth::get_sign_in).post(auth::create_sign_in))
-        .fallback_service(ServeDir::new("public"))
+        .fallback_service(ServeDir::new(public_path))
         .with_state(state);
 
     // Run the server
