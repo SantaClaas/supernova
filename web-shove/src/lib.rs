@@ -6,8 +6,8 @@ use aes_gcm::{
 mod experiments;
 
 const KEY_INFO: &[u8; 13] = b"WebPush: info";
-const CONTENT_ENCODING_KEY_INFO: &[u8] = b"Content-Encoding: aes128gcm\0";
-const NONCE_INFO: &[u8] = b"Content-Encoding: nonce\0";
+const CONTENT_ENCODING_KEY_INFO: &[u8; 28] = b"Content-Encoding: aes128gcm\0";
+const NONCE_INFO: &[u8; 24] = b"Content-Encoding: nonce\0";
 
 const PADDING_DELIMITER: u8 = 0x01;
 const LAST_PADDING_DELIMITER: u8 = 0x02;
