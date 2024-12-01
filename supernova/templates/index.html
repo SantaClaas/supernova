@@ -1,7 +1,14 @@
 {% extends "layout.html" %}
+
 {% block content %}
 <h1>Supernova</h1>
 <p>A time tracking tool for yourself</p>
 <a href="/signin">Sign in</a>
+<button onclick="subscribe('{{ application_server_public_key }}')">Subscribe</button>
 {% endblock %}
+
+{% block scripts %}
+<script src=/notifications.js></script>
+{% endblock %}
+
 {% call super() %}

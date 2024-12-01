@@ -4,6 +4,7 @@ use aes_gcm::{
 };
 
 mod experiments;
+pub mod vapid;
 
 const KEY_INFO: &[u8; 13] = b"WebPush: info";
 const CONTENT_ENCODING_KEY_INFO: &[u8; 29] = b"Content-Encoding: aes128gcm\x00\x01";
@@ -98,7 +99,7 @@ fn encrypt_plain_text(key: &[u8; 16], plaintext: &[u8; 42], nonce: &[u8; 12]) ->
 
 #[cfg(test)]
 mod test {
-    /// Using the base64 url encoded values as the RFC uses them and they are subjectively easier to compare
+    /// Using the base64 url encoded values as the RFC uses them, and they are subjectively easier to compare
     mod rfc8291 {
         use super::super::*;
         use base64::prelude::*;

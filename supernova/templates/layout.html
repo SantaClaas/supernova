@@ -9,6 +9,10 @@
 <body>
     {% block content %}
     {% endblock %}
+
+    {% block scripts %}
+    {% endblock %}
+    <script>navigator.serviceWorker.register('service-worker.js');</script>
 </body>
 
 </html

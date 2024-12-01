@@ -3348,7 +3348,6 @@ dependencies = [
  "dotenvy",
  "libsql",
  "nanoid",
- "p256",
  "postcard",
  "serde",
  "thiserror 2.0.3",
@@ -3358,6 +3357,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "web-shove",
 ]
 
 [[package]]
@@ -4042,7 +4042,6 @@ dependencies = [
  "libcrux-hkdf",
  "libcrux-hmac",
  "p256",
- "rand",
  "rand_chacha",
  "ring",
  "thiserror 2.0.3",

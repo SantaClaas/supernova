@@ -8,19 +8,23 @@ use std::net::Ipv4Addr;
 use std::path::Path;
 
 use auth::cookie::{self, Key};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Router;
+use base64::prelude::BASE64_URL_SAFE_NO_PAD;
+use base64::Engine;
 use dotenvy::dotenv;
 use secrets::Secrets;
 use tower_http::services::ServeDir;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry;
 use tracing_subscriber::util::SubscriberInitExt;
+use web_shove::vapid::Vapid;
 
 #[derive(Clone)]
 pub(crate) struct AppState {
     pub(crate) secrets: Secrets,
     pub(crate) key: cookie::Key,
+    pub(crate) vapid: Vapid,
 }
 
 #[tokio::main]
@@ -40,23 +44,34 @@ async fn main() {
     } else {
         std::env::current_exe().unwrap_or_else(|error| {
             tracing::warn!(
-                "Could not get current executable path to find public directory to serve files. Files will likely be served from relative public folder from current working directory. Causing Error: {}",
+                "Could not get current executable path. Will serve static files from relative \"public\" directory. Causing Error: {}",
                 error
             );
             "public".into()
         })
     };
 
-    // tracing::info!("Directory {:?} {:?}", public_path,);
     let secrets = secrets::setup().await.unwrap();
+    let key_bytes = BASE64_URL_SAFE_NO_PAD
+        .decode(secrets.vapid_private_key.as_ref())
+        .unwrap();
+    let key_bytes = &key_bytes.try_into().unwrap();
+    //TODO email
+    let vapid = Vapid::with_private_key("example@example.com", key_bytes);
+
     let state = AppState {
         secrets,
         key: Key::new().expect("Error accessing random"),
+        vapid,
     };
 
     let app = Router::new()
         .route("/", get(index::get))
         .route("/signin", get(auth::get_sign_in).post(auth::create_sign_in))
+        .route(
+            "/notifications/subscriptions",
+            post(notification::create_subscription),
+        )
         .fallback_service(ServeDir::new(public_path))
         .with_state(state);
 
