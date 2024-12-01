@@ -102,6 +102,13 @@ fn create_content_encoding_header(
     let mut header = [0; CONTENT_ENCODING_HEADER_LENGTH];
     header[..SALT_LENGTH].copy_from_slice(salt);
     header[SALT_LENGTH..SALT_LENGTH + RECORD_SIZE_LENGTH].copy_from_slice(record_size);
+
+    const {
+        assert!(
+            PUBLIC_KEY_LENGTH <= u8::MAX as usize,
+            "Public key can not be longer than 255 because the length field is a u8"
+        );
+    }
     header[SALT_LENGTH + RECORD_SIZE_LENGTH] = PUBLIC_KEY_LENGTH as u8;
     header[SALT_LENGTH + RECORD_SIZE_LENGTH + KEY_ID_LENGTH..].copy_from_slice(key_id);
     header
