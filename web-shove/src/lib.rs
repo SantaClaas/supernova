@@ -1,16 +1,7 @@
-use std::{array::TryFromSliceError, rc::Rc};
-
 use aes_gcm::{
-    aead::{heapless, AeadMut, AeadMutInPlace},
+    aead::{heapless, AeadMutInPlace},
     KeyInit,
 };
-use rand::prelude::*;
-use ring::{
-    aead::BoundKey,
-    agreement::{self, EphemeralPrivateKey},
-    rand::SecureRandom,
-};
-use thiserror::Error;
 
 const KEY_INFO: &[u8; 13] = b"WebPush: info";
 const CONTENT_ENCODING_KEY_INFO: &[u8] = b"Content-Encoding: aes128gcm\0";
@@ -106,7 +97,7 @@ fn create_content_encoding_header(
     const {
         assert!(
             PUBLIC_KEY_LENGTH <= u8::MAX as usize,
-            "Public key can not be longer than 255 because the length field is a u8"
+            "Public key can not be longer than 255 because the length field is only one byte long"
         );
     }
     header[SALT_LENGTH + RECORD_SIZE_LENGTH] = PUBLIC_KEY_LENGTH as u8;
