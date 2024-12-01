@@ -3,6 +3,8 @@ use aes_gcm::{
     KeyInit,
 };
 
+mod experiments;
+
 const KEY_INFO: &[u8; 13] = b"WebPush: info";
 const CONTENT_ENCODING_KEY_INFO: &[u8] = b"Content-Encoding: aes128gcm\0";
 const NONCE_INFO: &[u8] = b"Content-Encoding: nonce\0";
@@ -44,7 +46,7 @@ fn create_key_info(
 ) -> [u8; KEY_INFO_LENGTH] {
     let mut key_info = [0u8; KEY_INFO_LENGTH];
     key_info[..KEY_INFO.len()].copy_from_slice(KEY_INFO);
-    // This is aleady zeroed
+    // This is already zeroed
     // key_info[KEY_INFO.len()] = 0x00;
     key_info[KEY_INFO.len() + 1..KEY_INFO.len() + 1 + PUBLIC_KEY_LENGTH]
         .copy_from_slice(user_agent_public_key);
@@ -58,30 +60,6 @@ fn create_key_info(
 const SALT_LENGTH: usize = 16;
 const RECORD_SIZE_LENGTH: usize = size_of::<u32>();
 const KEY_ID_LENGTH: usize = size_of::<u8>();
-mod experimental {
-
-    /// Restrict key id to length of <=255 as defined by the specification but do it at compile time
-    struct KeyId<const LENGTH: usize>([u8; LENGTH]);
-    impl<const LENGTH: usize> KeyId<LENGTH> {
-        pub fn new(key_id: [u8; LENGTH]) -> Self {
-            const {
-                assert!(
-                    LENGTH <= u8::MAX as usize,
-                    "Key id length is greater than 255"
-                )
-            };
-            Self(key_id)
-        }
-
-        #[inline]
-        pub const fn length() -> usize {
-            LENGTH
-        }
-    }
-    fn impossible() {
-        let key = KeyId::<259>::new([0; 259]);
-    }
-}
 
 const CONTENT_ENCODING_HEADER_LENGTH: usize =
     SALT_LENGTH + RECORD_SIZE_LENGTH + KEY_ID_LENGTH + PUBLIC_KEY_LENGTH;
