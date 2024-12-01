@@ -39,7 +39,7 @@ fn create_shared_ecdh_secret(
     shared_ecdh_secret.0[..32].try_into().unwrap()
 }
 
-const KEY_INFO_LENGTH: usize = KEY_INFO.len() + 1 + PUBLIC_KEY_LENGTH * 2;
+const KEY_INFO_LENGTH: usize = KEY_INFO.len() + 1 + PUBLIC_KEY_LENGTH * 2 + 1;
 fn create_key_info(
     application_server_public_key: &[u8; PUBLIC_KEY_LENGTH],
     user_agent_public_key: &[u8; PUBLIC_KEY_LENGTH],
@@ -50,9 +50,9 @@ fn create_key_info(
     // key_info[KEY_INFO.len()] = 0x00;
     key_info[KEY_INFO.len() + 1..KEY_INFO.len() + 1 + PUBLIC_KEY_LENGTH]
         .copy_from_slice(user_agent_public_key);
-    key_info[KEY_INFO.len() + 1 + PUBLIC_KEY_LENGTH..]
+    key_info[KEY_INFO.len() + 1 + PUBLIC_KEY_LENGTH..KEY_INFO.len() + 1 + PUBLIC_KEY_LENGTH * 2]
         .copy_from_slice(application_server_public_key);
-    // key_info.push(0x01);
+    key_info[KEY_INFO.len() + 1 + PUBLIC_KEY_LENGTH * 2] = PADDING_DELIMITER;
 
     key_info
 }
@@ -192,10 +192,12 @@ mod test {
                 .try_into()
                 .unwrap();
 
+            // Added the "AQ" at the end which differs from the RFC example because the key info is always used with the
+            // 0x01 delimiter at the end
             let expected_key_info = "V2ViUHVzaDogaW5mbwAEJXGyvs3942BVG\
                  q8e0PTNNmwRzr5VX4m8t7GGpTM5FzFo7OLr4BhZe9MEebhuPI-OztV3\
                  ylkYfpJGmQ22ggCLDgT-M_SrDepxkU21WCP3O1SUj0Ew\
-                 bZIHMtu5pZpTKGSCIA5Zent7wmC6HCJ5mFgJkuk5cwAvMBKiiujwa7t45ewP";
+                 bZIHMtu5pZpTKGSCIA5Zent7wmC6HCJ5mFgJkuk5cwAvMBKiiujwa7t45ewPAQ";
 
             // Act
             let key_info = create_key_info(&application_server_public_key, &user_agent_public_key);
@@ -243,9 +245,6 @@ mod test {
             let pseudo_random_key = create_pseudo_random_key(&authentication_secret, &ecdh_secret);
 
             let key_info = create_key_info(&application_server_public_key, &user_agent_public_key);
-            //TODO make fixed length
-            let mut key_info = Vec::from(key_info.as_ref());
-            key_info.push(PADDING_DELIMITER);
 
             let input_keying_material = libcrux_hmac::hmac(
                 libcrux_hmac::Algorithm::Sha256,
@@ -297,9 +296,6 @@ mod test {
             let pseudo_random_key = create_pseudo_random_key(&authentication_secret, &ecdh_secret);
 
             let key_info = create_key_info(&application_server_public_key, &user_agent_public_key);
-            //TODO make fixed length
-            let mut key_info = Vec::from(key_info.as_ref());
-            key_info.push(PADDING_DELIMITER);
 
             let input_keying_material = libcrux_hmac::hmac(
                 libcrux_hmac::Algorithm::Sha256,
@@ -369,9 +365,6 @@ mod test {
             let pseudo_random_key = create_pseudo_random_key(&authentication_secret, &ecdh_secret);
 
             let key_info = create_key_info(&application_server_public_key, &user_agent_public_key);
-            //TODO make fixed length
-            let mut key_info = Vec::from(key_info.as_ref());
-            key_info.push(PADDING_DELIMITER);
 
             let input_keying_material = libcrux_hmac::hmac(
                 libcrux_hmac::Algorithm::Sha256,
@@ -450,9 +443,6 @@ mod test {
             let pseudo_random_key = create_pseudo_random_key(&authentication_secret, &ecdh_secret);
 
             let key_info = create_key_info(&application_server_public_key, &user_agent_public_key);
-            //TODO make fixed length
-            let mut key_info = Vec::from(key_info.as_ref());
-            key_info.push(PADDING_DELIMITER);
 
             let input_keying_material = libcrux_hmac::hmac(
                 libcrux_hmac::Algorithm::Sha256,
@@ -566,9 +556,6 @@ mod test {
             let pseudo_random_key = create_pseudo_random_key(&authentication_secret, &ecdh_secret);
 
             let key_info = create_key_info(&application_server_public_key, &user_agent_public_key);
-            //TODO make fixed length
-            let mut key_info = Vec::from(key_info.as_ref());
-            key_info.push(PADDING_DELIMITER);
 
             let input_keying_material = libcrux_hmac::hmac(
                 libcrux_hmac::Algorithm::Sha256,
@@ -669,9 +656,6 @@ mod test {
             let pseudo_random_key = create_pseudo_random_key(&authentication_secret, &ecdh_secret);
 
             let key_info = create_key_info(&application_server_public_key, &user_agent_public_key);
-            //TODO make fixed length
-            let mut key_info = Vec::from(key_info.as_ref());
-            key_info.push(PADDING_DELIMITER);
 
             let input_keying_material = libcrux_hmac::hmac(
                 libcrux_hmac::Algorithm::Sha256,
