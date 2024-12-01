@@ -6,7 +6,7 @@ use aes_gcm::{
 mod experiments;
 
 const KEY_INFO: &[u8; 13] = b"WebPush: info";
-const CONTENT_ENCODING_KEY_INFO: &[u8; 28] = b"Content-Encoding: aes128gcm\x00";
+const CONTENT_ENCODING_KEY_INFO: &[u8; 29] = b"Content-Encoding: aes128gcm\x00\x01";
 /// Nonce information with padding delimiter
 const NONCE_INFO: &[u8; 25] = b"Content-Encoding: nonce\x00\x01";
 
@@ -321,7 +321,8 @@ mod test {
         #[test]
         fn can_create_info_for_content_encryption_key_derivation() {
             // Arrange
-            let expected_cek_info = "Q29udGVudC1FbmNvZGluZzogYWVzMTI4Z2NtAA";
+            // Added the padding delimiter "E" which deviates from the RFC as we always include the padding delimiter
+            let expected_cek_info = "Q29udGVudC1FbmNvZGluZzogYWVzMTI4Z2NtAAE";
             // Act
             let encoded = BASE64_URL_SAFE_NO_PAD.encode(CONTENT_ENCODING_KEY_INFO);
             // Assert
@@ -380,14 +381,11 @@ mod test {
                 &input_keying_material,
                 None,
             );
-            //TODO make fixed length
-            let mut key_info = Vec::from(CONTENT_ENCODING_KEY_INFO);
-            key_info.push(PADDING_DELIMITER);
 
             let content_encryption_key = &libcrux_hmac::hmac(
                 libcrux_hmac::Algorithm::Sha256,
                 &pseudo_random_key,
-                &key_info,
+                CONTENT_ENCODING_KEY_INFO,
                 Some(16),
             );
 
@@ -570,14 +568,10 @@ mod test {
                 None,
             );
 
-            //TODO make fixed length
-            let mut key_info = Vec::from(CONTENT_ENCODING_KEY_INFO);
-            key_info.push(PADDING_DELIMITER);
-
             let content_encryption_key = &libcrux_hmac::hmac(
                 libcrux_hmac::Algorithm::Sha256,
                 &pseudo_random_key,
-                &key_info,
+                CONTENT_ENCODING_KEY_INFO,
                 Some(16),
             )
             .try_into()
@@ -666,14 +660,11 @@ mod test {
                 &input_keying_material,
                 None,
             );
-            //TODO make fixed length
-            let mut key_info = Vec::from(CONTENT_ENCODING_KEY_INFO);
-            key_info.push(PADDING_DELIMITER);
 
             let content_encryption_key = &libcrux_hmac::hmac(
                 libcrux_hmac::Algorithm::Sha256,
                 &pseudo_random_key,
-                &key_info,
+                CONTENT_ENCODING_KEY_INFO,
                 Some(16),
             )
             .try_into()
