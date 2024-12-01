@@ -1,6 +1,9 @@
 use std::{array::TryFromSliceError, rc::Rc};
 
-use aes_gcm::{aead::AeadMut, KeyInit};
+use aes_gcm::{
+    aead::{heapless, AeadMut, AeadMutInPlace},
+    KeyInit,
+};
 use rand::prelude::*;
 use ring::{
     aead::BoundKey,
@@ -104,17 +107,16 @@ fn create_content_encoding_header(
     header
 }
 
-fn encrypt_plain_text(key: &[u8], plaintext: &[u8], nonce: &[u8]) -> Rc<[u8]> {
-    // let Ok(key) = key..try_into() else {
-    //     todo!("Key has to be 16 bytes")
-    // };
-
-    // let key = ring::aead::UnboundKey::new(&ring::aead::AES_128_GCM, key).unwrap();
-    // ring::aead::SealingKey::new(key, nonce)
-
+fn encrypt_plain_text(key: &[u8; 16], plaintext: &[u8; 42], nonce: &[u8; 12]) -> [u8; 58] {
+    let mut buffer: heapless::Vec<u8, 58> = heapless::Vec::new();
+    buffer.extend_from_slice(plaintext).unwrap();
     let mut cipher = aes_gcm::Aes128Gcm::new_from_slice(key).unwrap();
     let nonce = aes_gcm::Nonce::from_slice(nonce);
-    cipher.encrypt(nonce, plaintext).unwrap().into()
+    cipher
+        .encrypt_in_place(nonce, Default::default(), &mut buffer)
+        .unwrap();
+
+    buffer.into_array().unwrap()
 }
 
 #[cfg(test)]
@@ -614,7 +616,9 @@ mod test {
                 &pseudo_random_key,
                 &key_info,
                 Some(16),
-            );
+            )
+            .try_into()
+            .unwrap();
 
             //TODO make fixed length
             let mut plaintext = Vec::from(PLAINTEXT);
@@ -624,15 +628,21 @@ mod test {
             let mut key_info = Vec::from(NONCE_INFO);
             key_info.push(PADDING_DELIMITER);
 
-            let nonce = &libcrux_hmac::hmac(
+            let nonce: &[u8; 12] = &libcrux_hmac::hmac(
                 libcrux_hmac::Algorithm::Sha256,
                 &pseudo_random_key,
                 &key_info,
                 Some(12),
-            );
+            )
+            .try_into()
+            .unwrap();
 
             assert_eq!(12, nonce.len());
-            let ciphertext = encrypt_plain_text(content_encryption_key, &plaintext, nonce);
+            let ciphertext = encrypt_plain_text(
+                content_encryption_key,
+                &plaintext.try_into().unwrap(),
+                nonce,
+            );
 
             let encoded = BASE64_URL_SAFE_NO_PAD.encode(ciphertext);
 
@@ -709,7 +719,9 @@ mod test {
                 &pseudo_random_key,
                 &key_info,
                 Some(16),
-            );
+            )
+            .try_into()
+            .unwrap();
 
             //TODO make fixed length
             let mut plaintext = Vec::from(PLAINTEXT);
@@ -719,15 +731,21 @@ mod test {
             let mut key_info = Vec::from(NONCE_INFO);
             key_info.push(PADDING_DELIMITER);
 
-            let nonce = &libcrux_hmac::hmac(
+            let nonce: &[u8; 12] = &libcrux_hmac::hmac(
                 libcrux_hmac::Algorithm::Sha256,
                 &pseudo_random_key,
                 &key_info,
                 Some(12),
-            );
+            )
+            .try_into()
+            .unwrap();
 
             assert_eq!(12, nonce.len());
-            let ciphertext = encrypt_plain_text(content_encryption_key, &plaintext, nonce);
+            let ciphertext = encrypt_plain_text(
+                content_encryption_key,
+                &plaintext.try_into().unwrap(),
+                nonce,
+            );
             let header = create_content_encoding_header(
                 &salt.try_into().unwrap(),
                 &RECORD_SIZE,
