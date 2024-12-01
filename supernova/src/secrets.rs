@@ -1,16 +1,13 @@
 use std::{
     collections::HashMap,
-    env::{self, var},
+    env::{self},
     rc::Rc,
     sync::Arc,
 };
 
 use bitwarden::{
     auth::login::AccessTokenLoginRequest,
-    secrets_manager::{
-        secrets::{SecretGetRequest, SecretsGetRequest},
-        ClientSecretsExt,
-    },
+    secrets_manager::{secrets::SecretsGetRequest, ClientSecretsExt},
     Client,
 };
 use thiserror::Error;

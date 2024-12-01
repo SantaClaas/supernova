@@ -1,4 +1,4 @@
-use std::{rc::Rc, sync::Arc};
+use std::sync::Arc;
 
 ///! Voluntary Application Server Identification for Web Push (VAPID) based on RFC8292.
 use aes_gcm::aead::OsRng;

@@ -4,6 +4,6 @@ use vapid::Vapid;
 mod vapid;
 fn main() {
     let vapid = Vapid::generate("example@example.com");
-    let private_key = BASE64_URL_SAFE_NO_PAD.encode(vapid.private_key);
+    let private_key = BASE64_URL_SAFE_NO_PAD.encode(vapid.private_key.as_ref());
     println!("{}", private_key);
 }
