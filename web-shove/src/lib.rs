@@ -6,8 +6,9 @@ use aes_gcm::{
 mod experiments;
 
 const KEY_INFO: &[u8; 13] = b"WebPush: info";
-const CONTENT_ENCODING_KEY_INFO: &[u8; 28] = b"Content-Encoding: aes128gcm\0";
-const NONCE_INFO: &[u8; 24] = b"Content-Encoding: nonce\0";
+const CONTENT_ENCODING_KEY_INFO: &[u8; 28] = b"Content-Encoding: aes128gcm\x00";
+/// Nonce information with padding delimiter
+const NONCE_INFO: &[u8; 25] = b"Content-Encoding: nonce\x00\x01";
 
 const PADDING_DELIMITER: u8 = 0x01;
 const LAST_PADDING_DELIMITER: u8 = 0x02;
@@ -398,7 +399,8 @@ mod test {
         #[test]
         fn can_create_info_for_content_encryption_nonce_derivation() {
             // Arrange
-            let expected_nonce_info = "Q29udGVudC1FbmNvZGluZzogbm9uY2UA";
+            // Added the padding delimiter "AQ" which deviates from the RFC as we always include the padding delimiter
+            let expected_nonce_info = "Q29udGVudC1FbmNvZGluZzogbm9uY2UAAQ";
             // Act
             let encoded = BASE64_URL_SAFE_NO_PAD.encode(NONCE_INFO);
             // Assert
@@ -457,14 +459,11 @@ mod test {
                 &input_keying_material,
                 None,
             );
-            //TODO make fixed length
-            let mut key_info = Vec::from(NONCE_INFO);
-            key_info.push(PADDING_DELIMITER);
 
             let nonce = &libcrux_hmac::hmac(
                 libcrux_hmac::Algorithm::Sha256,
                 &pseudo_random_key,
-                &key_info,
+                NONCE_INFO,
                 Some(12),
             );
 
@@ -570,6 +569,7 @@ mod test {
                 &input_keying_material,
                 None,
             );
+
             //TODO make fixed length
             let mut key_info = Vec::from(CONTENT_ENCODING_KEY_INFO);
             key_info.push(PADDING_DELIMITER);
@@ -587,14 +587,10 @@ mod test {
             let mut plaintext = Vec::from(PLAINTEXT);
             plaintext.push(LAST_PADDING_DELIMITER);
 
-            //TODO make fixed length
-            let mut key_info = Vec::from(NONCE_INFO);
-            key_info.push(PADDING_DELIMITER);
-
             let nonce: &[u8; 12] = &libcrux_hmac::hmac(
                 libcrux_hmac::Algorithm::Sha256,
                 &pseudo_random_key,
-                &key_info,
+                NONCE_INFO,
                 Some(12),
             )
             .try_into()
@@ -687,14 +683,10 @@ mod test {
             let mut plaintext = Vec::from(PLAINTEXT);
             plaintext.push(LAST_PADDING_DELIMITER);
 
-            //TODO make fixed length
-            let mut key_info = Vec::from(NONCE_INFO);
-            key_info.push(PADDING_DELIMITER);
-
             let nonce: &[u8; 12] = &libcrux_hmac::hmac(
                 libcrux_hmac::Algorithm::Sha256,
                 &pseudo_random_key,
-                &key_info,
+                NONCE_INFO,
                 Some(12),
             )
             .try_into()
