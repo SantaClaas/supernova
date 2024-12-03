@@ -6,6 +6,7 @@ mod notification;
 
 use std::net::Ipv4Addr;
 use std::path::Path;
+use std::sync::Arc;
 
 use auth::cookie::{self, Key};
 use axum::routing::{get, post};
@@ -13,7 +14,9 @@ use axum::Router;
 use base64::prelude::BASE64_URL_SAFE_NO_PAD;
 use base64::Engine;
 use dotenvy::dotenv;
+use notification::Subscription;
 use secrets::Secrets;
+use tokio::sync::Mutex;
 use tower_http::services::ServeDir;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry;
@@ -23,8 +26,11 @@ use web_shove::vapid::Vapid;
 #[derive(Clone)]
 pub(crate) struct AppState {
     pub(crate) secrets: Secrets,
-    pub(crate) key: cookie::Key,
+    pub(crate) cookie_key: cookie::Key,
     pub(crate) vapid: Vapid,
+    ///TODO memory leak issue
+    pub(crate) subscriptions: Arc<Mutex<Vec<Subscription>>>,
+    pub(crate) client: reqwest::Client,
 }
 
 #[tokio::main]
@@ -61,8 +67,10 @@ async fn main() {
 
     let state = AppState {
         secrets,
-        key: Key::new().expect("Error accessing random"),
+        cookie_key: Key::new().expect("Error accessing random"),
         vapid,
+        subscriptions: Arc::default(),
+        client: reqwest::Client::new(),
     };
 
     let app = Router::new()
@@ -71,6 +79,10 @@ async fn main() {
         .route(
             "/notifications/subscriptions",
             post(notification::create_subscription),
+        )
+        .route(
+            "/notifications/push",
+            post(notification::create_push_notification),
         )
         .fallback_service(ServeDir::new(public_path))
         .with_state(state);

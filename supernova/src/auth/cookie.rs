@@ -20,7 +20,7 @@ impl Key {
 
 impl FromRef<AppState> for AxumKey {
     fn from_ref(state: &AppState) -> Self {
-        state.key.0.clone()
+        state.cookie_key.0.clone()
     }
 }
 

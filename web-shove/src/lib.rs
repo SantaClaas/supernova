@@ -1,7 +1,11 @@
+use std::rc::Rc;
+
 use aes_gcm::{
-    aead::{heapless, AeadMutInPlace},
+    aead::{heapless, AeadMutInPlace, OsRng},
     KeyInit,
 };
+use rand_chacha::rand_core::RngCore;
+use ring::rand::{self, SecureRandom};
 
 mod experiments;
 pub mod vapid;
@@ -14,6 +18,114 @@ const NONCE_INFO: &[u8; 25] = b"Content-Encoding: nonce\x00\x01";
 const PADDING_DELIMITER: u8 = 0x01;
 const LAST_PADDING_DELIMITER: u8 = 0x02;
 const PUBLIC_KEY_LENGTH: usize = 65;
+const PRIVATE_KEY_LENGTH: usize = 32;
+//TODO check if record size is fixed
+const RECORD_SIZE: [u8; 4] = 4096u32.to_be_bytes();
+
+pub struct PushMessageParameters {
+    pub salt: [u8; 16],
+    pub application_server_public_key: [u8; PUBLIC_KEY_LENGTH],
+    pub content: Vec<u8>,
+}
+
+pub fn create_push_message_payload(
+    plaintext: &[u8],
+    user_agent_public_key: &[u8; PUBLIC_KEY_LENGTH],
+    authentication_secret: &[u8; 16],
+) -> PushMessageParameters {
+    // Temporary keys for Elliptic Curve Diffie-Hellman key exchange
+    let (application_server_private_key, application_server_public_key) =
+        libcrux_ecdh::key_gen(libcrux_ecdh::Algorithm::P256, &mut OsRng).unwrap();
+
+    let mut salt = [0u8; 16];
+    OsRng.fill_bytes(&mut salt);
+
+    let application_server_private_key = &application_server_private_key.try_into().unwrap();
+    let application_server_public_key = &application_server_public_key.try_into().unwrap();
+
+    let ecdh_secret = create_shared_ecdh_secret(
+        application_server_private_key,
+        user_agent_public_key[1..].try_into().unwrap(),
+    );
+
+    let key_info = create_key_info(application_server_public_key, user_agent_public_key);
+
+    // # HKDF-Extract(salt=auth_secret, IKM=ecdh_secret)
+    let pseudo_random_key = create_pseudo_random_key(&authentication_secret, &ecdh_secret);
+    // # HKDF-Expand(PRK_key, key_info, L_key=32)
+    let input_keying_material = libcrux_hmac::hmac(
+        libcrux_hmac::Algorithm::Sha256,
+        &pseudo_random_key,
+        &key_info,
+        Some(32),
+    );
+
+    // # HKDF-Extract(salt, IKM)
+    let pseudo_random_key = libcrux_hmac::hmac(
+        libcrux_hmac::Algorithm::Sha256,
+        &salt,
+        &input_keying_material,
+        None,
+    );
+
+    // # HKDF-Expand(PRK, cek_info, L_cek=16)
+    let content_encryption_key: &[u8; 16] = &libcrux_hmac::hmac(
+        libcrux_hmac::Algorithm::Sha256,
+        &pseudo_random_key,
+        CONTENT_ENCODING_KEY_INFO,
+        Some(16),
+    )
+    .try_into()
+    .unwrap();
+
+    let nonce: &[u8; 12] = &libcrux_hmac::hmac(
+        libcrux_hmac::Algorithm::Sha256,
+        &pseudo_random_key,
+        NONCE_INFO,
+        Some(12),
+    )
+    .try_into()
+    .unwrap();
+
+    assert_eq!(12, nonce.len());
+    //TODO add padding to payload/plaintext?
+    let ciphertext = encrypt_plain_text(content_encryption_key, &plaintext, nonce);
+    let header = create_content_encoding_header(
+        &salt,
+        // Size might be fixed to add padding to avoid side channel by checking message size?
+        &RECORD_SIZE,
+        &application_server_public_key,
+    );
+
+    //TODO reduce allocation
+    let mut buffer = Vec::with_capacity(CONTENT_ENCODING_HEADER_LENGTH + ciphertext.len());
+
+    buffer.extend_from_slice(header.as_ref());
+    buffer.extend_from_slice(ciphertext.as_ref());
+
+    PushMessageParameters {
+        salt,
+        application_server_public_key: *application_server_public_key,
+        content: buffer,
+    }
+}
+//TODO support urgency header
+pub enum Subject<'a> {
+    Email(&'a str),
+    Https(&'a str),
+}
+pub fn create_authorization_header(
+    push_service_origin: &str,
+    subject: Subject,
+    public_key: [u8; PUBLIC_KEY_LENGTH],
+    private_key: [u8; PRIVATE_KEY_LENGTH],
+    // unix epoch timestamp in seconds
+    not_before: u64,
+) {
+    // Just naively format a string
+    let token = format!(r#"{{"aud":"{push_service_origin}","nbf":"{not_before}"}}"#);
+    dbg!(token);
+}
 
 //TODO use ring when we know it works and figure out deterministic key generation for testing as it only generates ephemeral keys
 fn create_pseudo_random_key(authentication_secret: &[u8; 16], ecdh_secret: &[u8; 32]) -> [u8; 32] {
@@ -27,7 +139,7 @@ fn create_pseudo_random_key(authentication_secret: &[u8; 16], ecdh_secret: &[u8;
 }
 
 fn create_shared_ecdh_secret(
-    application_server_private_key: &[u8; 32],
+    application_server_private_key: &[u8; PRIVATE_KEY_LENGTH],
     user_agent_public_key: &[u8; 64],
 ) -> [u8; 32] {
     let application_server_private_key =
@@ -85,16 +197,31 @@ fn create_content_encoding_header(
     header
 }
 
-fn encrypt_plain_text(key: &[u8; 16], plaintext: &[u8; 42], nonce: &[u8; 12]) -> [u8; 58] {
-    let mut buffer: heapless::Vec<u8, 58> = heapless::Vec::new();
-    buffer.extend_from_slice(plaintext).unwrap();
+fn encrypt_plain_text(key: &[u8; 16], plaintext: &[u8], nonce: &[u8; 12]) -> Rc<[u8]> {
+    //TODO no allocation like below
+    // 42 plaintext length + 16 key length + 12 nonce length = 58??
+    // or is it 42 + 12 + 4?
+    // let mut buffer: heapless::Vec<u8, 58> = heapless::Vec::new();
+    // buffer.extend_from_slice(plaintext).unwrap();
+    // let mut cipher = aes_gcm::Aes128Gcm::new_from_slice(key).unwrap();
+    // let nonce = aes_gcm::Nonce::from_slice(nonce);
+    // cipher
+    //     .encrypt_in_place(nonce, Default::default(), &mut buffer)
+    //     .unwrap();
+
+    // buffer.into_array().unwrap()
+
+    let mut buffer = Vec::with_capacity(plaintext.len() + 16);
+    buffer.extend_from_slice(plaintext);
     let mut cipher = aes_gcm::Aes128Gcm::new_from_slice(key).unwrap();
     let nonce = aes_gcm::Nonce::from_slice(nonce);
     cipher
         .encrypt_in_place(nonce, Default::default(), &mut buffer)
         .unwrap();
 
-    buffer.into_array().unwrap()
+    assert_eq!(buffer.len(), plaintext.len() + 16);
+
+    Rc::from(buffer)
 }
 
 #[cfg(test)]
@@ -110,7 +237,6 @@ mod test {
         const USER_AGENT_PUBLIC_KEY: &str = "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcx\
                                          aOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4";
         const AUTHENTICATION_SECRET: &str = "BTBZMqHH6r4Tts7J_aSIgg";
-        const RECORD_SIZE: [u8; 4] = 4096u32.to_be_bytes();
         const SALT: &str = "DGv6ra1nlYgDCS1FRnbzlw";
 
         const PLAINTEXT: &str = "When I grow up, I want to be a watermelon";
@@ -122,7 +248,7 @@ mod test {
                 .decode("kyrL1jIIOHEzg3sM2ZWRHDRB62YACZhhSlknJ672kSs")
                 .unwrap();
 
-            let application_server_private_key: [u8; 32] = BASE64_URL_SAFE_NO_PAD
+            let application_server_private_key: [u8; PRIVATE_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PRIVATE_KEY)
                 .unwrap()
                 .try_into()
@@ -148,7 +274,7 @@ mod test {
             // Arrange
             const EXPECTED_PSEUDO_RANDOM_KEY: &str = "Snr3JMxaHVDXHWJn5wdC52WjpCtd2EIEGBykDcZW32k";
 
-            let application_server_private_key: [u8; 32] = BASE64_URL_SAFE_NO_PAD
+            let application_server_private_key: [u8; PRIVATE_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PRIVATE_KEY)
                 .unwrap()
                 .try_into()
@@ -214,7 +340,7 @@ mod test {
         fn can_crate_input_keying_material_for_content_encryption_key_derivation() {
             // Arrange
             let expected_input_keying_material = "S4lYMb_L0FxCeq0WhDx813KgSYqU26kOyzWUdsXYyrg";
-            let application_server_private_key: [u8; 32] = BASE64_URL_SAFE_NO_PAD
+            let application_server_private_key: [u8; PRIVATE_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PRIVATE_KEY)
                 .unwrap()
                 .try_into()
@@ -266,7 +392,7 @@ mod test {
             let expected_pseudo_random_key: &str = "09_eUZGrsvxChDCGRCdkLiDXrReGOEVeSCdCcPBSJSc";
             let salt = BASE64_URL_SAFE_NO_PAD.decode(SALT).unwrap();
 
-            let application_server_private_key: [u8; 32] = BASE64_URL_SAFE_NO_PAD
+            let application_server_private_key: [u8; PRIVATE_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PRIVATE_KEY)
                 .unwrap()
                 .try_into()
@@ -336,7 +462,7 @@ mod test {
             let expected_content_encryption_key = "oIhVW04MRdy2XN9CiKLxTg";
             let salt = BASE64_URL_SAFE_NO_PAD.decode(SALT).unwrap();
 
-            let application_server_private_key: [u8; 32] = BASE64_URL_SAFE_NO_PAD
+            let application_server_private_key: [u8; PRIVATE_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PRIVATE_KEY)
                 .unwrap()
                 .try_into()
@@ -412,7 +538,7 @@ mod test {
             let expected_nonce = "4h_95klXJ5E_qnoN";
             let salt = BASE64_URL_SAFE_NO_PAD.decode(SALT).unwrap();
 
-            let application_server_private_key: [u8; 32] = BASE64_URL_SAFE_NO_PAD
+            let application_server_private_key: [u8; PRIVATE_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PRIVATE_KEY)
                 .unwrap()
                 .try_into()
@@ -522,7 +648,7 @@ mod test {
                 "8pfeW0KbunFT06SuDKoJH9Ql87S1QUrdirN6GcG7sFz1y1sqLgVi1VhjVkHsUoEsbI_0LpXMuGvnzQ";
             let salt = BASE64_URL_SAFE_NO_PAD.decode(SALT).unwrap();
 
-            let application_server_private_key: [u8; 32] = BASE64_URL_SAFE_NO_PAD
+            let application_server_private_key: [u8; PRIVATE_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PRIVATE_KEY)
                 .unwrap()
                 .try_into()
@@ -592,11 +718,7 @@ mod test {
             .unwrap();
 
             assert_eq!(12, nonce.len());
-            let ciphertext = encrypt_plain_text(
-                content_encryption_key,
-                &plaintext.try_into().unwrap(),
-                nonce,
-            );
+            let ciphertext = encrypt_plain_text(content_encryption_key, &plaintext, nonce);
 
             let encoded = BASE64_URL_SAFE_NO_PAD.encode(ciphertext);
 
@@ -614,7 +736,7 @@ mod test {
 
             let salt = BASE64_URL_SAFE_NO_PAD.decode(SALT).unwrap();
 
-            let application_server_private_key: [u8; 32] = BASE64_URL_SAFE_NO_PAD
+            let application_server_private_key: [u8; PRIVATE_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
                 .decode(APPLICATION_SERVER_PRIVATE_KEY)
                 .unwrap()
                 .try_into()
@@ -644,10 +766,12 @@ mod test {
                 &application_server_private_key,
                 user_agent_public_key[1..].try_into().unwrap(),
             );
-            let pseudo_random_key = create_pseudo_random_key(&authentication_secret, &ecdh_secret);
-
             let key_info = create_key_info(&application_server_public_key, &user_agent_public_key);
 
+            // # HKDF-Extract(salt=auth_secret, IKM=ecdh_secret)
+            let pseudo_random_key = create_pseudo_random_key(&authentication_secret, &ecdh_secret);
+
+            // # HKDF-Expand(PRK_key, key_info, L_key=32)
             let input_keying_material = libcrux_hmac::hmac(
                 libcrux_hmac::Algorithm::Sha256,
                 &pseudo_random_key,
@@ -655,6 +779,7 @@ mod test {
                 Some(32),
             );
 
+            // # HKDF-Extract(salt, IKM)
             let pseudo_random_key = libcrux_hmac::hmac(
                 libcrux_hmac::Algorithm::Sha256,
                 &salt,
@@ -662,7 +787,8 @@ mod test {
                 None,
             );
 
-            let content_encryption_key = &libcrux_hmac::hmac(
+            // # HKDF-Expand(PRK, cek_info, L_cek=16)
+            let content_encryption_key: &[u8; 16] = &libcrux_hmac::hmac(
                 libcrux_hmac::Algorithm::Sha256,
                 &pseudo_random_key,
                 CONTENT_ENCODING_KEY_INFO,
@@ -685,18 +811,16 @@ mod test {
             .unwrap();
 
             assert_eq!(12, nonce.len());
-            let ciphertext = encrypt_plain_text(
-                content_encryption_key,
-                &plaintext.try_into().unwrap(),
-                nonce,
-            );
+            let ciphertext = encrypt_plain_text(content_encryption_key, &plaintext, nonce);
             let header = create_content_encoding_header(
                 &salt.try_into().unwrap(),
                 &RECORD_SIZE,
                 &application_server_public_key,
             );
 
-            let mut buffer = Vec::from(header.as_ref());
+            let mut buffer = Vec::with_capacity(header.len() + ciphertext.len());
+            // let mut buffer = Vec::from(header.as_ref());
+            buffer.extend_from_slice(header.as_ref());
             buffer.extend_from_slice(ciphertext.as_ref());
             let encoded = BASE64_URL_SAFE_NO_PAD.encode(buffer);
 

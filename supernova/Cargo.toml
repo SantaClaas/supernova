@@ -14,9 +14,12 @@ base64 = "0.22.1"
 bitwarden = "1.0.0"
 cookie = "0.18.1"
 dotenvy = "0.15.7"
+getrandom = "0.2.15"
 libsql = "0.6.0"
+mime = "0.3.17"
 nanoid = "0.4.0"
 postcard = { version = "1.1.0", features = ["alloc"], default-features = false }
+reqwest = "0.12.9"
 serde = { version = "1.0.215", features = ["derive"] }
 thiserror = "2.0.3"
 time = { version = "0.3.36", features = ["serde"] }
@@ -24,5 +27,6 @@ tokio = { version = "1.41.1", features = ["full"] }
 tower-http = { version = "0.6.2", features = ["fs"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+url = { version = "2.5.4", features = ["serde"] }
 uuid = "1.11.0"
 web-shove = { path = "../web-shove" }
