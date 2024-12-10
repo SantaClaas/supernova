@@ -1,12 +1,15 @@
-use std::rc::Rc;
+use std::{rc::Rc, time::Duration};
 
 use aes_gcm::{
     aead::{heapless, AeadMutInPlace, OsRng},
     KeyInit,
 };
+use base64::{prelude::BASE64_URL_SAFE_NO_PAD, Engine};
+use p256::ecdsa::{signature::Signer, Signature, SigningKey};
 use rand_chacha::rand_core::RngCore;
 use ring::rand::{self, SecureRandom};
-
+use time::OffsetDateTime;
+pub mod authorization_header;
 mod experiments;
 pub mod vapid;
 
@@ -34,13 +37,16 @@ pub fn create_push_message_payload(
     authentication_secret: &[u8; 16],
 ) -> PushMessageParameters {
     // Temporary keys for Elliptic Curve Diffie-Hellman key exchange
-    let (application_server_private_key, application_server_public_key) =
+    let (application_server_private_key, mut application_server_public_key) =
         libcrux_ecdh::key_gen(libcrux_ecdh::Algorithm::P256, &mut OsRng).unwrap();
 
     let mut salt = [0u8; 16];
     OsRng.fill_bytes(&mut salt);
 
     let application_server_private_key = &application_server_private_key.try_into().unwrap();
+    //TODO solve this a better way instead of shifting all 64 bytes
+    // Insert the 0x04 byte for the uncompressed point encoding
+    application_server_public_key.insert(0, 0x04);
     let application_server_public_key = &application_server_public_key.try_into().unwrap();
 
     let ecdh_secret = create_shared_ecdh_secret(
@@ -108,23 +114,6 @@ pub fn create_push_message_payload(
         application_server_public_key: *application_server_public_key,
         content: buffer,
     }
-}
-//TODO support urgency header
-pub enum Subject<'a> {
-    Email(&'a str),
-    Https(&'a str),
-}
-pub fn create_authorization_header(
-    push_service_origin: &str,
-    subject: Subject,
-    public_key: [u8; PUBLIC_KEY_LENGTH],
-    private_key: [u8; PRIVATE_KEY_LENGTH],
-    // unix epoch timestamp in seconds
-    not_before: u64,
-) {
-    // Just naively format a string
-    let token = format!(r#"{{"aud":"{push_service_origin}","nbf":"{not_before}"}}"#);
-    dbg!(token);
 }
 
 //TODO use ring when we know it works and figure out deterministic key generation for testing as it only generates ephemeral keys

@@ -4,7 +4,10 @@
 <h1>Supernova</h1>
 <p>A time tracking tool for yourself</p>
 <a href="/signin">Sign in</a>
-<button onclick="subscribe('{{ application_server_public_key }}')">Subscribe</button>
+<button onclick="subscribe('{{ application_server_public_key }}')" class="p-4 rounded-full bg-amber-300">Subscribe</button>
+<form method="post" action="/notifications/push">
+    <button type="submit" class="p-4 rounded-full bg-amber-300">Send Notification</button>
+</form>
 {% endblock %}
 
 {% block scripts %}

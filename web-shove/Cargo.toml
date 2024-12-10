@@ -7,6 +7,9 @@ edition = "2021"
 aes-gcm = { version = "0.10.3", features = ["heapless"] }
 base64 = "0.22.1"
 getrandom = { version = "0.2.15", features = ["custom"] }
+http = "1.2.0"
+josekit = "0.10.0"
+jsonwebtoken = "9.3.0"
 libcrux-ecdh = "0.0.2-alpha.3"
 libcrux-hkdf = "0.0.2-alpha.3"
 libcrux-hmac = "0.0.2-alpha.3"
@@ -16,3 +19,4 @@ ring = { version = "0.17.8", features = [
     "less-safe-getrandom-custom-or-rdrand",
 ] }
 thiserror = "2.0.3"
+time = "0.3.37"
