@@ -176,7 +176,7 @@ pub(super) async fn create_push_notification(
             )
             .header(
                 reqwest::header::CONTENT_ENCODING,
-                HeaderValue::from_static("aesgcm"),
+                HeaderValue::from_static("aes128gcm"),
             )
             .header(
                 HeaderName::from_static("encryption"),
