@@ -200,6 +200,11 @@ fn encrypt_plain_text(key: &[u8; 16], plaintext: &[u8], nonce: &[u8; 12]) -> Rc<
 
     // buffer.into_array().unwrap()
 
+    // Quick and dirty attempt to fix
+    let mut plaintext = Vec::from(plaintext);
+    plaintext.push(0x02);
+    let plaintext = &plaintext;
+
     let mut buffer = Vec::with_capacity(plaintext.len() + 16);
     buffer.extend_from_slice(plaintext);
     let mut cipher = aes_gcm::Aes128Gcm::new_from_slice(key).unwrap();
