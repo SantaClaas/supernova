@@ -222,9 +222,10 @@ fn encrypt_plain_text(key: &[u8; 16], plaintext: &[u8], nonce: &[u8; 12]) -> Rc<
 #[cfg(test)]
 mod test {
     /// Using the base64 url encoded values as the RFC uses them, and they are subjectively easier to compare
-    mod rfc8291 {
+    mod rfc_8291 {
         use super::super::*;
         use base64::prelude::*;
+        use rstest::{fixture, rstest};
 
         const APPLICATION_SERVER_PRIVATE_KEY: &str = "yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw";
         const APPLICATION_SERVER_PUBLIC_KEY: &str = "BP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIg\
@@ -236,62 +237,77 @@ mod test {
 
         const PLAINTEXT: &str = "When I grow up, I want to be a watermelon";
 
-        #[test]
-        fn can_produce_shared_ecdh_secret() {
+        struct Fixture {
+            application_server_private_key: [u8; PRIVATE_KEY_LENGTH],
+            application_server_public_key: [u8; PUBLIC_KEY_LENGTH],
+            user_agent_public_key: [u8; PUBLIC_KEY_LENGTH],
+            authentication_secret: [u8; 16],
+            salt: [u8; 16],
+        }
+
+        #[fixture]
+        fn rfc_8291_example() -> Fixture {
+            Fixture {
+                application_server_private_key: BASE64_URL_SAFE_NO_PAD
+                    .decode(APPLICATION_SERVER_PRIVATE_KEY)
+                    .unwrap()
+                    .try_into()
+                    .unwrap(),
+                application_server_public_key: BASE64_URL_SAFE_NO_PAD
+                    .decode(APPLICATION_SERVER_PUBLIC_KEY)
+                    .unwrap()
+                    .try_into()
+                    .unwrap(),
+                user_agent_public_key: BASE64_URL_SAFE_NO_PAD
+                    .decode(USER_AGENT_PUBLIC_KEY)
+                    .unwrap()
+                    .try_into()
+                    .unwrap(),
+                authentication_secret: BASE64_URL_SAFE_NO_PAD
+                    .decode(AUTHENTICATION_SECRET)
+                    .unwrap()
+                    .try_into()
+                    .unwrap(),
+                salt: BASE64_URL_SAFE_NO_PAD
+                    .decode(SALT)
+                    .unwrap()
+                    .try_into()
+                    .unwrap(),
+            }
+        }
+
+        #[rstest]
+        fn can_produce_shared_ecdh_secret(#[from(rfc_8291_example)] fixture: Fixture) {
             // Arrange
             let expected_shared_ecdh_secret = BASE64_URL_SAFE_NO_PAD
                 .decode("kyrL1jIIOHEzg3sM2ZWRHDRB62YACZhhSlknJ672kSs")
                 .unwrap();
 
-            let application_server_private_key: [u8; PRIVATE_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
-                .decode(APPLICATION_SERVER_PRIVATE_KEY)
-                .unwrap()
-                .try_into()
-                .unwrap();
-
-            let user_agent_public_key = BASE64_URL_SAFE_NO_PAD
-                .decode(USER_AGENT_PUBLIC_KEY)
-                .unwrap()[1..]
-                .try_into()
-                .unwrap();
-
             // Act
 
-            let shared_secret =
-                create_shared_ecdh_secret(&application_server_private_key, &user_agent_public_key);
+            let shared_secret = create_shared_ecdh_secret(
+                &fixture.application_server_private_key,
+                fixture.user_agent_public_key[1..].try_into().unwrap(),
+            );
 
             // Assert
             assert_eq!(expected_shared_ecdh_secret, shared_secret);
         }
 
-        #[test]
-        fn can_crate_pseudo_random_key_for_combining() {
+        #[rstest]
+        fn can_crate_pseudo_random_key_for_combining(#[from(rfc_8291_example)] fixture: Fixture) {
             // Arrange
             const EXPECTED_PSEUDO_RANDOM_KEY: &str = "Snr3JMxaHVDXHWJn5wdC52WjpCtd2EIEGBykDcZW32k";
 
-            let application_server_private_key: [u8; PRIVATE_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
-                .decode(APPLICATION_SERVER_PRIVATE_KEY)
-                .unwrap()
-                .try_into()
-                .unwrap();
-
-            let user_agent_public_key = BASE64_URL_SAFE_NO_PAD
-                .decode(USER_AGENT_PUBLIC_KEY)
-                .unwrap()[1..]
-                .try_into()
-                .unwrap();
-
-            let authentication_secret = BASE64_URL_SAFE_NO_PAD
-                .decode(AUTHENTICATION_SECRET)
-                .unwrap();
-
             // Act
-            let ecdh_secret =
-                create_shared_ecdh_secret(&application_server_private_key, &user_agent_public_key);
+            let ecdh_secret = create_shared_ecdh_secret(
+                &fixture.application_server_private_key,
+                &fixture.user_agent_public_key[1..].try_into().unwrap(),
+            );
 
             let pseudo_random_key = libcrux_hkdf::extract(
                 libcrux_hkdf::Algorithm::Sha256,
-                authentication_secret,
+                fixture.authentication_secret,
                 ecdh_secret,
             );
 
@@ -300,20 +316,9 @@ mod test {
             assert_eq!(EXPECTED_PSEUDO_RANDOM_KEY, encoded);
         }
 
-        #[test]
-        fn can_create_info_for_key_combining() {
+        #[rstest]
+        fn can_create_info_for_key_combining(#[from(rfc_8291_example)] fixture: Fixture) {
             // Arrange
-            let application_server_public_key: [u8; PUBLIC_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
-                .decode(APPLICATION_SERVER_PUBLIC_KEY)
-                .unwrap()
-                .try_into()
-                .unwrap();
-
-            let user_agent_public_key: [u8; PUBLIC_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
-                .decode(USER_AGENT_PUBLIC_KEY)
-                .unwrap()
-                .try_into()
-                .unwrap();
 
             // Added the "AQ" at the end which differs from the RFC example because the key info is always used with the
             // 0x01 delimiter at the end
@@ -323,7 +328,10 @@ mod test {
                  bZIHMtu5pZpTKGSCIA5Zent7wmC6HCJ5mFgJkuk5cwAvMBKiiujwa7t45ewPAQ";
 
             // Act
-            let key_info = create_key_info(&application_server_public_key, &user_agent_public_key);
+            let key_info = create_key_info(
+                &fixture.application_server_public_key,
+                &fixture.user_agent_public_key,
+            );
 
             let encoded = BASE64_URL_SAFE_NO_PAD.encode(key_info);
 
@@ -331,43 +339,27 @@ mod test {
             assert_eq!(expected_key_info, encoded);
         }
 
-        #[test]
-        fn can_crate_input_keying_material_for_content_encryption_key_derivation() {
+        #[rstest]
+        fn can_crate_input_keying_material_for_content_encryption_key_derivation(
+            #[from(rfc_8291_example)] fixture: Fixture,
+        ) {
             // Arrange
             let expected_input_keying_material = "S4lYMb_L0FxCeq0WhDx813KgSYqU26kOyzWUdsXYyrg";
-            let application_server_private_key: [u8; PRIVATE_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
-                .decode(APPLICATION_SERVER_PRIVATE_KEY)
-                .unwrap()
-                .try_into()
-                .unwrap();
-            let application_server_public_key: [u8; PUBLIC_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
-                .decode(APPLICATION_SERVER_PUBLIC_KEY)
-                .unwrap()
-                .try_into()
-                .unwrap();
-
-            let user_agent_public_key: [u8; PUBLIC_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
-                .decode(USER_AGENT_PUBLIC_KEY)
-                .unwrap()
-                .try_into()
-                .unwrap();
-
-            let authentication_secret = BASE64_URL_SAFE_NO_PAD
-                .decode(AUTHENTICATION_SECRET)
-                .unwrap()
-                .try_into()
-                .unwrap();
 
             // Act
 
             let ecdh_secret = create_shared_ecdh_secret(
-                &application_server_private_key,
-                user_agent_public_key[1..].try_into().unwrap(),
+                &fixture.application_server_private_key,
+                fixture.user_agent_public_key[1..].try_into().unwrap(),
             );
 
-            let pseudo_random_key = create_pseudo_random_key(&authentication_secret, &ecdh_secret);
+            let pseudo_random_key =
+                create_pseudo_random_key(&fixture.authentication_secret, &ecdh_secret);
 
-            let key_info = create_key_info(&application_server_public_key, &user_agent_public_key);
+            let key_info = create_key_info(
+                &fixture.application_server_public_key,
+                &fixture.user_agent_public_key,
+            );
 
             let input_keying_material = libcrux_hmac::hmac(
                 libcrux_hmac::Algorithm::Sha256,
@@ -381,44 +373,25 @@ mod test {
             assert_eq!(expected_input_keying_material, encoded);
         }
 
-        #[test]
-        fn can_create_pseudo_random_key_for_content_encryption() {
+        #[rstest]
+        fn can_create_pseudo_random_key_for_content_encryption(
+            #[from(rfc_8291_example)] fixture: Fixture,
+        ) {
             // Arrange
             let expected_pseudo_random_key: &str = "09_eUZGrsvxChDCGRCdkLiDXrReGOEVeSCdCcPBSJSc";
-            let salt = BASE64_URL_SAFE_NO_PAD.decode(SALT).unwrap();
-
-            let application_server_private_key: [u8; PRIVATE_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
-                .decode(APPLICATION_SERVER_PRIVATE_KEY)
-                .unwrap()
-                .try_into()
-                .unwrap();
-
-            let application_server_public_key: [u8; PUBLIC_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
-                .decode(APPLICATION_SERVER_PUBLIC_KEY)
-                .unwrap()
-                .try_into()
-                .unwrap();
-
-            let user_agent_public_key: [u8; PUBLIC_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
-                .decode(USER_AGENT_PUBLIC_KEY)
-                .unwrap()
-                .try_into()
-                .unwrap();
-
-            let authentication_secret = BASE64_URL_SAFE_NO_PAD
-                .decode(AUTHENTICATION_SECRET)
-                .unwrap()
-                .try_into()
-                .unwrap();
 
             // Act
             let ecdh_secret = create_shared_ecdh_secret(
-                &application_server_private_key,
-                user_agent_public_key[1..].try_into().unwrap(),
+                &fixture.application_server_private_key,
+                fixture.user_agent_public_key[1..].try_into().unwrap(),
             );
-            let pseudo_random_key = create_pseudo_random_key(&authentication_secret, &ecdh_secret);
+            let pseudo_random_key =
+                create_pseudo_random_key(&fixture.authentication_secret, &ecdh_secret);
 
-            let key_info = create_key_info(&application_server_public_key, &user_agent_public_key);
+            let key_info = create_key_info(
+                &fixture.application_server_public_key,
+                &fixture.user_agent_public_key,
+            );
 
             let input_keying_material = libcrux_hmac::hmac(
                 libcrux_hmac::Algorithm::Sha256,
@@ -429,7 +402,7 @@ mod test {
 
             let pseudo_random_key = libcrux_hmac::hmac(
                 libcrux_hmac::Algorithm::Sha256,
-                &salt,
+                &fixture.salt,
                 &input_keying_material,
                 None,
             );
@@ -440,55 +413,23 @@ mod test {
             assert_eq!(expected_pseudo_random_key, encoded);
         }
 
-        #[test]
-        fn can_create_info_for_content_encryption_key_derivation() {
-            // Arrange
-            // Added the padding delimiter "E" which deviates from the RFC as we always include the padding delimiter
-            let expected_cek_info = "Q29udGVudC1FbmNvZGluZzogYWVzMTI4Z2NtAAE";
-            // Act
-            let encoded = BASE64_URL_SAFE_NO_PAD.encode(CONTENT_ENCODING_KEY_INFO);
-            // Assert
-            assert_eq!(expected_cek_info, encoded);
-        }
-
-        #[test]
-        fn can_create_content_encryption_key() {
+        #[rstest]
+        fn can_create_content_encryption_key(#[from(rfc_8291_example)] fixture: Fixture) {
             // Arrange
             let expected_content_encryption_key = "oIhVW04MRdy2XN9CiKLxTg";
-            let salt = BASE64_URL_SAFE_NO_PAD.decode(SALT).unwrap();
-
-            let application_server_private_key: [u8; PRIVATE_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
-                .decode(APPLICATION_SERVER_PRIVATE_KEY)
-                .unwrap()
-                .try_into()
-                .unwrap();
-
-            let application_server_public_key: [u8; PUBLIC_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
-                .decode(APPLICATION_SERVER_PUBLIC_KEY)
-                .unwrap()
-                .try_into()
-                .unwrap();
-
-            let user_agent_public_key: [u8; PUBLIC_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
-                .decode(USER_AGENT_PUBLIC_KEY)
-                .unwrap()
-                .try_into()
-                .unwrap();
-
-            let authentication_secret = BASE64_URL_SAFE_NO_PAD
-                .decode(AUTHENTICATION_SECRET)
-                .unwrap()
-                .try_into()
-                .unwrap();
 
             // Act
             let ecdh_secret = create_shared_ecdh_secret(
-                &application_server_private_key,
-                user_agent_public_key[1..].try_into().unwrap(),
+                &fixture.application_server_private_key,
+                fixture.user_agent_public_key[1..].try_into().unwrap(),
             );
-            let pseudo_random_key = create_pseudo_random_key(&authentication_secret, &ecdh_secret);
+            let pseudo_random_key =
+                create_pseudo_random_key(&fixture.authentication_secret, &ecdh_secret);
 
-            let key_info = create_key_info(&application_server_public_key, &user_agent_public_key);
+            let key_info = create_key_info(
+                &fixture.application_server_public_key,
+                &fixture.user_agent_public_key,
+            );
 
             let input_keying_material = libcrux_hmac::hmac(
                 libcrux_hmac::Algorithm::Sha256,
@@ -499,7 +440,7 @@ mod test {
 
             let pseudo_random_key = libcrux_hmac::hmac(
                 libcrux_hmac::Algorithm::Sha256,
-                &salt,
+                &fixture.salt,
                 &input_keying_material,
                 None,
             );
@@ -516,55 +457,23 @@ mod test {
             assert_eq!(expected_content_encryption_key, encoded)
         }
 
-        #[test]
-        fn can_create_info_for_content_encryption_nonce_derivation() {
-            // Arrange
-            // Added the padding delimiter "AQ" which deviates from the RFC as we always include the padding delimiter
-            let expected_nonce_info = "Q29udGVudC1FbmNvZGluZzogbm9uY2UAAQ";
-            // Act
-            let encoded = BASE64_URL_SAFE_NO_PAD.encode(NONCE_INFO);
-            // Assert
-            assert_eq!(expected_nonce_info, encoded);
-        }
-
-        #[test]
-        fn can_create_nonce() {
+        #[rstest]
+        fn can_create_nonce(#[from(rfc_8291_example)] fixture: Fixture) {
             // Arrange
             let expected_nonce = "4h_95klXJ5E_qnoN";
-            let salt = BASE64_URL_SAFE_NO_PAD.decode(SALT).unwrap();
-
-            let application_server_private_key: [u8; PRIVATE_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
-                .decode(APPLICATION_SERVER_PRIVATE_KEY)
-                .unwrap()
-                .try_into()
-                .unwrap();
-
-            let application_server_public_key: [u8; PUBLIC_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
-                .decode(APPLICATION_SERVER_PUBLIC_KEY)
-                .unwrap()
-                .try_into()
-                .unwrap();
-
-            let user_agent_public_key: [u8; PUBLIC_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
-                .decode(USER_AGENT_PUBLIC_KEY)
-                .unwrap()
-                .try_into()
-                .unwrap();
-
-            let authentication_secret = BASE64_URL_SAFE_NO_PAD
-                .decode(AUTHENTICATION_SECRET)
-                .unwrap()
-                .try_into()
-                .unwrap();
 
             // Act
             let ecdh_secret = create_shared_ecdh_secret(
-                &application_server_private_key,
-                user_agent_public_key[1..].try_into().unwrap(),
+                &fixture.application_server_private_key,
+                fixture.user_agent_public_key[1..].try_into().unwrap(),
             );
-            let pseudo_random_key = create_pseudo_random_key(&authentication_secret, &ecdh_secret);
+            let pseudo_random_key =
+                create_pseudo_random_key(&fixture.authentication_secret, &ecdh_secret);
 
-            let key_info = create_key_info(&application_server_public_key, &user_agent_public_key);
+            let key_info = create_key_info(
+                &fixture.application_server_public_key,
+                &fixture.user_agent_public_key,
+            );
 
             let input_keying_material = libcrux_hmac::hmac(
                 libcrux_hmac::Algorithm::Sha256,
@@ -575,7 +484,7 @@ mod test {
 
             let pseudo_random_key = libcrux_hmac::hmac(
                 libcrux_hmac::Algorithm::Sha256,
-                &salt,
+                &fixture.salt,
                 &input_keying_material,
                 None,
             );
@@ -592,89 +501,43 @@ mod test {
             assert_eq!(expected_nonce, encoded)
         }
 
-        #[test]
-        fn can_create_content_encoding_header() {
+        #[rstest]
+        fn can_create_content_encoding_header(#[from(rfc_8291_example)] fixture: Fixture) {
             // Arrange
             let expexted_content_encoding_header =
                 "DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtk\
                 gcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A8";
 
-            let salt = BASE64_URL_SAFE_NO_PAD
-                .decode(SALT)
-                .unwrap()
-                .try_into()
-                .unwrap();
-
-            let application_server_public_key: [u8; PUBLIC_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
-                .decode(APPLICATION_SERVER_PUBLIC_KEY)
-                .unwrap()
-                .try_into()
-                .unwrap();
-
             // Act
-            let header =
-                create_content_encoding_header(&salt, &RECORD_SIZE, &application_server_public_key);
+            let header = create_content_encoding_header(
+                &fixture.salt,
+                &RECORD_SIZE,
+                &fixture.application_server_public_key,
+            );
             let encoded = BASE64_URL_SAFE_NO_PAD.encode(header);
 
             // Assert
             assert_eq!(expexted_content_encoding_header, encoded);
         }
 
-        #[test]
-        fn can_create_push_message_plaintext() {
-            // Arrange
-            let expected_push_message_plaintext =
-                "V2hlbiBJIGdyb3cgdXAsIEkgd2FudCB0byBiZSBhIHdhdGVybWVsb24C";
-
-            // Act
-
-            let mut buffer = Vec::from(PLAINTEXT);
-            buffer.push(LAST_PADDING_DELIMITER);
-            let encoded = BASE64_URL_SAFE_NO_PAD.encode(buffer);
-
-            // Assert
-            assert_eq!(expected_push_message_plaintext, encoded);
-        }
-
-        #[test]
-        fn can_aes128gcm_encrypt_plaintext() {
+        #[rstest]
+        fn can_aes128gcm_encrypt_plaintext(#[from(rfc_8291_example)] fixture: Fixture) {
             // Arrange
             let expected_ciphertext =
                 "8pfeW0KbunFT06SuDKoJH9Ql87S1QUrdirN6GcG7sFz1y1sqLgVi1VhjVkHsUoEsbI_0LpXMuGvnzQ";
-            let salt = BASE64_URL_SAFE_NO_PAD.decode(SALT).unwrap();
-
-            let application_server_private_key: [u8; PRIVATE_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
-                .decode(APPLICATION_SERVER_PRIVATE_KEY)
-                .unwrap()
-                .try_into()
-                .unwrap();
-
-            let application_server_public_key: [u8; PUBLIC_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
-                .decode(APPLICATION_SERVER_PUBLIC_KEY)
-                .unwrap()
-                .try_into()
-                .unwrap();
-
-            let user_agent_public_key: [u8; PUBLIC_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
-                .decode(USER_AGENT_PUBLIC_KEY)
-                .unwrap()
-                .try_into()
-                .unwrap();
-
-            let authentication_secret = BASE64_URL_SAFE_NO_PAD
-                .decode(AUTHENTICATION_SECRET)
-                .unwrap()
-                .try_into()
-                .unwrap();
 
             // Act
             let ecdh_secret = create_shared_ecdh_secret(
-                &application_server_private_key,
-                user_agent_public_key[1..].try_into().unwrap(),
+                &fixture.application_server_private_key,
+                fixture.user_agent_public_key[1..].try_into().unwrap(),
             );
-            let pseudo_random_key = create_pseudo_random_key(&authentication_secret, &ecdh_secret);
+            let pseudo_random_key =
+                create_pseudo_random_key(&fixture.authentication_secret, &ecdh_secret);
 
-            let key_info = create_key_info(&application_server_public_key, &user_agent_public_key);
+            let key_info = create_key_info(
+                &fixture.application_server_public_key,
+                &fixture.user_agent_public_key,
+            );
 
             let input_keying_material = libcrux_hmac::hmac(
                 libcrux_hmac::Algorithm::Sha256,
@@ -685,7 +548,7 @@ mod test {
 
             let pseudo_random_key = libcrux_hmac::hmac(
                 libcrux_hmac::Algorithm::Sha256,
-                &salt,
+                &fixture.salt,
                 &input_keying_material,
                 None,
             );
@@ -718,50 +581,27 @@ mod test {
             assert_eq!(expected_ciphertext, encoded)
         }
 
-        #[test]
-        fn can_produce_rfc8291_section_5_result() {
+        #[rstest]
+        fn can_produce_rfc8291_section_5_result(#[from(rfc_8291_example)] fixture: Fixture) {
             // Arrange
             let expected_result =
                 "DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27ml\
                 mlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A_yl95bQpu6cVPT\
                 pK4Mqgkf1CXztLVBSt2Ks3oZwbuwXPXLWyouBWLVWGNWQexSgSxsj_Qulcy4a-fN";
 
-            let salt = BASE64_URL_SAFE_NO_PAD.decode(SALT).unwrap();
-
-            let application_server_private_key: [u8; PRIVATE_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
-                .decode(APPLICATION_SERVER_PRIVATE_KEY)
-                .unwrap()
-                .try_into()
-                .unwrap();
-
-            let application_server_public_key: [u8; PUBLIC_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
-                .decode(APPLICATION_SERVER_PUBLIC_KEY)
-                .unwrap()
-                .try_into()
-                .unwrap();
-
-            let user_agent_public_key: [u8; PUBLIC_KEY_LENGTH] = BASE64_URL_SAFE_NO_PAD
-                .decode(USER_AGENT_PUBLIC_KEY)
-                .unwrap()
-                .try_into()
-                .unwrap();
-
-            let authentication_secret = BASE64_URL_SAFE_NO_PAD
-                .decode(AUTHENTICATION_SECRET)
-                .unwrap()
-                .try_into()
-                .unwrap();
-
             // Act
-
             let ecdh_secret = create_shared_ecdh_secret(
-                &application_server_private_key,
-                user_agent_public_key[1..].try_into().unwrap(),
+                &fixture.application_server_private_key,
+                fixture.user_agent_public_key[1..].try_into().unwrap(),
             );
-            let key_info = create_key_info(&application_server_public_key, &user_agent_public_key);
+            let key_info = create_key_info(
+                &fixture.application_server_public_key,
+                &fixture.user_agent_public_key,
+            );
 
             // # HKDF-Extract(salt=auth_secret, IKM=ecdh_secret)
-            let pseudo_random_key = create_pseudo_random_key(&authentication_secret, &ecdh_secret);
+            let pseudo_random_key =
+                create_pseudo_random_key(&fixture.authentication_secret, &ecdh_secret);
 
             // # HKDF-Expand(PRK_key, key_info, L_key=32)
             let input_keying_material = libcrux_hmac::hmac(
@@ -774,7 +614,7 @@ mod test {
             // # HKDF-Extract(salt, IKM)
             let pseudo_random_key = libcrux_hmac::hmac(
                 libcrux_hmac::Algorithm::Sha256,
-                &salt,
+                &fixture.salt,
                 &input_keying_material,
                 None,
             );
@@ -803,9 +643,9 @@ mod test {
             let ciphertext =
                 encrypt_plain_text(content_encryption_key, PLAINTEXT.as_bytes(), nonce);
             let header = create_content_encoding_header(
-                &salt.try_into().unwrap(),
+                &fixture.salt,
                 &RECORD_SIZE,
-                &application_server_public_key,
+                &fixture.application_server_public_key,
             );
 
             let mut buffer = Vec::with_capacity(header.len() + ciphertext.len());
