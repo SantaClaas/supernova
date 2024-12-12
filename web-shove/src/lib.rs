@@ -10,6 +10,7 @@ use rand_chacha::rand_core::RngCore;
 use ring::rand::{self, SecureRandom};
 use time::OffsetDateTime;
 pub mod authorization_header;
+mod encrypted_content_encoding;
 mod experiments;
 pub mod vapid;
 
@@ -202,7 +203,7 @@ fn encrypt_plain_text(key: &[u8; 16], plaintext: &[u8], nonce: &[u8; 12]) -> Rc<
 
     // Quick and dirty attempt to fix
     let mut plaintext = Vec::from(plaintext);
-    plaintext.push(0x02);
+    plaintext.push(LAST_PADDING_DELIMITER);
     let plaintext = &plaintext;
 
     let mut buffer = Vec::with_capacity(plaintext.len() + 16);
@@ -698,10 +699,6 @@ mod test {
             .try_into()
             .unwrap();
 
-            //TODO make fixed length
-            let mut plaintext = Vec::from(PLAINTEXT);
-            plaintext.push(LAST_PADDING_DELIMITER);
-
             let nonce: &[u8; 12] = &libcrux_hmac::hmac(
                 libcrux_hmac::Algorithm::Sha256,
                 &pseudo_random_key,
@@ -712,7 +709,8 @@ mod test {
             .unwrap();
 
             assert_eq!(12, nonce.len());
-            let ciphertext = encrypt_plain_text(content_encryption_key, &plaintext, nonce);
+            let ciphertext =
+                encrypt_plain_text(content_encryption_key, PLAINTEXT.as_bytes(), nonce);
 
             let encoded = BASE64_URL_SAFE_NO_PAD.encode(ciphertext);
 
@@ -791,10 +789,6 @@ mod test {
             .try_into()
             .unwrap();
 
-            //TODO make fixed length
-            let mut plaintext = Vec::from(PLAINTEXT);
-            plaintext.push(LAST_PADDING_DELIMITER);
-
             let nonce: &[u8; 12] = &libcrux_hmac::hmac(
                 libcrux_hmac::Algorithm::Sha256,
                 &pseudo_random_key,
@@ -805,7 +799,9 @@ mod test {
             .unwrap();
 
             assert_eq!(12, nonce.len());
-            let ciphertext = encrypt_plain_text(content_encryption_key, &plaintext, nonce);
+
+            let ciphertext =
+                encrypt_plain_text(content_encryption_key, PLAINTEXT.as_bytes(), nonce);
             let header = create_content_encoding_header(
                 &salt.try_into().unwrap(),
                 &RECORD_SIZE,
@@ -816,10 +812,10 @@ mod test {
             // let mut buffer = Vec::from(header.as_ref());
             buffer.extend_from_slice(header.as_ref());
             buffer.extend_from_slice(ciphertext.as_ref());
-            let encoded = BASE64_URL_SAFE_NO_PAD.encode(buffer);
+            let actual = BASE64_URL_SAFE_NO_PAD.encode(buffer);
 
             // Assert
-            assert_eq!(expected_result, encoded)
+            assert_eq!(expected_result, actual)
         }
     }
 }

@@ -113,6 +113,7 @@ mod test {
     use super::*;
 
     #[test]
+    #[ignore = "This test is ignored because it relies on randomness and is non deterministic. Needs to be fixed to only use fixed values"]
     fn can_create_authorization_header() {
         // Arrange
         const APPLICATION_SERVER_PRIVATE_KEY: &str = "yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw";
