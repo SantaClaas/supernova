@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "npx @tailwindcss/cli -i app.css -o ./public/app.css"
+    "start": "pnpx @tailwindcss/cli -i app.css -o ./public/app.css"
   },
   "keywords": [],
   "author": "claas <hello@claas.dev>",

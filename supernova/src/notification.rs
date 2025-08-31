@@ -5,16 +5,16 @@ use axum::{
     http::{HeaderName, HeaderValue},
 };
 use base64::{
-    prelude::{BASE64_STANDARD, BASE64_URL_SAFE_NO_PAD},
     Engine,
+    prelude::{BASE64_STANDARD, BASE64_URL_SAFE_NO_PAD},
 };
 use reqwest::{Method, Request, RequestBuilder, StatusCode};
 use serde::Deserialize;
 use time::OffsetDateTime;
 use url::Origin;
 use web_shove::{
-    authorization_header::{Subject, TokenData},
     PushMessageParameters,
+    authorization_header::{Subject, TokenData},
 };
 
 use crate::AppState;
@@ -22,7 +22,7 @@ use crate::AppState;
 mod public_key {
     use std::sync::Arc;
 
-    use base64::{prelude::BASE64_URL_SAFE_NO_PAD, Engine};
+    use base64::{Engine, prelude::BASE64_URL_SAFE_NO_PAD};
     use serde::Deserialize;
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Arc<[u8; 65]>, D::Error>
@@ -45,7 +45,7 @@ mod public_key {
 mod authentication_secret {
     use std::sync::Arc;
 
-    use base64::{prelude::BASE64_URL_SAFE_NO_PAD, Engine};
+    use base64::{Engine, prelude::BASE64_URL_SAFE_NO_PAD};
     use serde::Deserialize;
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Arc<[u8; 16]>, D::Error>
@@ -136,11 +136,8 @@ pub(super) async fn create_push_notification(
 
         let body = reqwest::Body::from(content);
         let encoded_dh = BASE64_URL_SAFE_NO_PAD.encode(application_server_public_key.as_ref());
-        let crypto_key_header_value = HeaderValue::from_str(&format!(
-            "dh={};p256ecdsa={}",
-            encoded_dh, application_server_signing_key
-        ))
-        .unwrap();
+        let crypto_key_header_value =
+            HeaderValue::from_str(&format!("p256ecdsa={application_server_signing_key}")).unwrap();
 
         let origin = subscription.endpoint.origin();
         if matches!(origin, Origin::Opaque(_)) {
@@ -178,10 +175,10 @@ pub(super) async fn create_push_notification(
                 reqwest::header::CONTENT_ENCODING,
                 HeaderValue::from_static("aes128gcm"),
             )
-            .header(
-                HeaderName::from_static("encryption"),
-                format!("salt={salt_encoded}"),
-            )
+            // .header(
+            //     HeaderName::from_static("encryption"),
+            //     format!("salt={salt_encoded}"),
+            // )
             .header(
                 HeaderName::from_static("crypto-key"),
                 crypto_key_header_value,
@@ -211,12 +208,30 @@ pub(super) async fn create_push_notification(
 
     tracing::info!("Push notifications sent");
     for result in results {
-        let response = result;
-        tracing::info!("Response: {:?}", response);
-        if let Ok(response) = response {
-            let text = response.text().await;
-            tracing::info!("Response text: {:?}", text);
+        let response = match result {
+            Ok(response) => response,
+            Err(error) => {
+                tracing::error!("Error sending push notification: {error}");
+                continue;
+            }
+        };
+
+        if response.status().is_success() {
+            continue;
         }
+
+        let text = match response.text().await {
+            Ok(text) => text,
+            Err(error) => {
+                tracing::error!(
+                    "Error reading push notification error response as text {}",
+                    error
+                );
+                continue;
+            }
+        };
+
+        tracing::error!("Error sending push notification with response: {text}");
     }
 
     StatusCode::CREATED

@@ -120,7 +120,7 @@ allow_warnings = true
 c = "job:clippy-all" # comment this to have 'c' run clippy on only the default target
 
 [jobs.dev]
-command = ["cargo", "run", "--package", "supernova"]
+command = ["cargo", "run", "--package", "supernova", "--bin", "supernova"]
 need_stdout = true
 allow_warnings = true
 background = false
