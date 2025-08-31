@@ -1,15 +1,15 @@
 mod authenticated_user;
 pub(crate) mod cookie;
 
+use askama::Template;
 pub(super) use authenticated_user::AuthenticatedUser;
 
 use std::sync::Arc;
 
-use askama_axum::Template;
 use axum::{
     extract::State,
     http::StatusCode,
-    response::{IntoResponse, Redirect, Response},
+    response::{Html, IntoResponse, Redirect, Response},
     Form,
 };
 use axum_extra::extract::{
@@ -25,8 +25,14 @@ use crate::AppState;
 #[template(path = "sign_in.html")]
 pub(super) struct SignInTemplate;
 
-pub(super) async fn get_sign_in() -> SignInTemplate {
-    SignInTemplate
+pub(super) async fn get_sign_in() -> impl IntoResponse {
+    match SignInTemplate.render() {
+        Ok(render) => Html(render).into_response(),
+        Err(error) => {
+            tracing::error!("Error rendering sign in template: {error}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
 }
 
 #[derive(Deserialize)]

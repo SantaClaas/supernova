@@ -2,7 +2,7 @@ use std::time::SystemTime;
 
 use crate::{PRIVATE_KEY_LENGTH, PUBLIC_KEY_LENGTH};
 use base64::prelude::*;
-use http::{header, HeaderName, HeaderValue};
+use http::{header, HeaderValue};
 use josekit::{
     jws::JwsHeader,
     jwt::{self, JwtPayload},

@@ -1,8 +1,12 @@
 use std::rc::Rc;
 
-use askama_axum::Template;
-use axum::extract::State;
+use askama::Template;
+use axum::{
+    extract::State,
+    response::{Html, IntoResponse},
+};
 use base64::{prelude::BASE64_URL_SAFE_NO_PAD, Engine};
+use reqwest::StatusCode;
 
 use crate::{auth::AuthenticatedUser, AppState};
 
@@ -16,10 +20,18 @@ pub(super) struct IndexTemplate {
 pub(super) async fn get<'a>(
     State(state): State<AppState>,
     user: Option<AuthenticatedUser>,
-) -> IndexTemplate {
+) -> impl IntoResponse {
     tracing::debug!("User is authenticated? {}", user.is_some());
     let public_key = BASE64_URL_SAFE_NO_PAD.encode(state.vapid.public_key.as_ref());
-    IndexTemplate {
+    let template = IndexTemplate {
         application_server_public_key: public_key.into(),
+    };
+
+    match template.render() {
+        Ok(render) => Html(render).into_response(),
+        Err(error) => {
+            tracing::error!("Error rendering index: {error}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }

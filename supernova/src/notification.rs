@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Json, State},
-    http::{self, HeaderName, HeaderValue},
+    http::{HeaderName, HeaderValue},
 };
 use base64::{
     prelude::{BASE64_STANDARD, BASE64_URL_SAFE_NO_PAD},
