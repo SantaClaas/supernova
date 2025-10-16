@@ -1,1 +1,9 @@
 @import "tailwindcss";
+
+@plugin "@claas.dev/material-tailwind" {
+  source-color: #0c1445;
+}
+
+@view-transition {
+  navigation: auto;
+}

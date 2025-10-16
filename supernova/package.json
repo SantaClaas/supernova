@@ -10,6 +10,7 @@
   "author": "claas <hello@claas.dev>",
   "license": "Apache-2.0",
   "devDependencies": {
+    "@claas.dev/material-tailwind": "^0.6.0",
     "@tailwindcss/cli": "4.1.12",
     "tailwindcss": "4.1.12"
   }

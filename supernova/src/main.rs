@@ -3,16 +3,17 @@ mod secrets;
 mod auth;
 mod index;
 mod notification;
+mod register;
 
 use std::net::Ipv4Addr;
 use std::path::Path;
 use std::sync::Arc;
 
 use auth::cookie::{self, Key};
-use axum::routing::{get, post};
 use axum::Router;
-use base64::prelude::BASE64_URL_SAFE_NO_PAD;
+use axum::routing::{get, post};
 use base64::Engine;
+use base64::prelude::BASE64_URL_SAFE_NO_PAD;
 use dotenvy::dotenv;
 use notification::Subscription;
 use secrets::Secrets;

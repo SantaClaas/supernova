@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      '@claas.dev/material-tailwind':
+        specifier: ^0.6.0
+        version: 0.6.0
       '@tailwindcss/cli':
         specifier: 4.1.12
         version: 4.1.12
@@ -16,6 +19,9 @@ importers:
         version: 4.1.12
 
 packages:
+
+  '@claas.dev/material-tailwind@0.6.0':
+    resolution: {integrity: sha512-tNo7j4hvzyLV15UWSgPnmmLxm3jQBbN4SOGzB7uY8PIw/QzizKVUAUa/HFWf09oJ+ZMob3QA4vUM/q1B/RnBgw==}
 
   '@isaacs/fs-minipass@4.0.1':
     resolution: {integrity: sha512-wgm9Ehl2jpeqP3zw/7mo3kRHFp5MEDhqAdwy1fTGkHAwnkGOVsgpvQhL8B5n1qlb01jV3n/bI0ZfZp5lWA1k4w==}
@@ -36,6 +42,9 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.30':
     resolution: {integrity: sha512-GQ7Nw5G2lTu/BtHTKfXhKHok2WGetd4XYcVKGx00SjAk8GMwgJM3zr6zORiPGuOE+/vkc90KtTosSSvaCjKb2Q==}
+
+  '@material/material-color-utilities@0.3.0':
+    resolution: {integrity: sha512-ztmtTd6xwnuh2/xu+Vb01btgV8SQWYCaK56CkRK8gEkWe5TuDyBcYJ0wgkMRn+2VcE9KUmhvkz+N9GHrqw/C0g==}
 
   '@parcel/watcher-android-arm64@2.5.1':
     resolution: {integrity: sha512-KF8+j9nNbUN8vzOFDpRMsaKBHZ/mcjEjMToVMJOhTozkDonQFFrRcfdLWn6yWKCmJKmdVxSgHiYvTCef4/qcBA==}
@@ -375,6 +384,10 @@ packages:
 
 snapshots:
 
+  '@claas.dev/material-tailwind@0.6.0':
+    dependencies:
+      '@material/material-color-utilities': 0.3.0
+
   '@isaacs/fs-minipass@4.0.1':
     dependencies:
       minipass: 7.1.2
@@ -397,6 +410,8 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
+
+  '@material/material-color-utilities@0.3.0': {}
 
   '@parcel/watcher-android-arm64@2.5.1':
     optional: true
