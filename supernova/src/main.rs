@@ -76,7 +76,7 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(index::get))
-        .route("/signin", get(auth::get_sign_in).post(auth::create_sign_in))
+        .route("/signin", post(auth::create_sign_in))
         .route(
             "/notifications/subscriptions",
             post(notification::create_subscription),

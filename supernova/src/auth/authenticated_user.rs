@@ -1,10 +1,9 @@
 use axum::{
-    async_trait,
     extract::{FromRef, FromRequestParts},
-    http::{request::Parts, HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode, request::Parts},
     response::{IntoResponse, Response},
 };
-use axum_extra::extract::{cookie::Key, PrivateCookieJar};
+use axum_extra::extract::{PrivateCookieJar, cookie::Key};
 use thiserror::Error;
 use time::OffsetDateTime;
 
@@ -34,7 +33,6 @@ impl IntoResponse for Error {
     }
 }
 
-#[async_trait]
 impl<S> FromRequestParts<S> for AuthenticatedUser
 where
     AppState: FromRef<S>,

@@ -26,3 +26,6 @@ Your app is ready to be deployed!
 ## Deployment
 
 Learn more about deploying your application with the [documentations](https://vite.dev/guide/static-deploy.html)
+
+# TODO
+- [ ] implement [device bound session credentials](https://developer.chrome.com/docs/web-platform/device-bound-session-credentials) because they automatically refresh cookies (and are secure)

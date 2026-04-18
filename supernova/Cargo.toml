@@ -4,21 +4,18 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-askama = "0.14.0"
-axum = { version = "0.7.9", features = [
-    #"macros"
-] }
-axum-extra = { version = "0.9.6", features = ["cookie-private"] }
+axum = { version = "0.8.8", features = [] }
+axum-extra = { version = "0.12.5", features = ["cookie-private"] }
 base64 = "0.22.1"
-bitwarden = "1.0.0"
+bitwarden = "2.0.0"
 cookie = "0.18.1"
 dotenvy = "0.15.7"
-getrandom = "0.2.15"
-libsql = "0.6.0"
+getrandom = "0.4.2"
+libsql = "0.9.30"
 mime = "0.3.17"
 nanoid = "0.4.0"
 postcard = { version = "1.1.0", features = ["alloc"], default-features = false }
-reqwest = "0.12.9"
+reqwest = "0.13.2"
 serde = { version = "1.0.215", features = ["derive"] }
 thiserror = "2.0.3"
 time = { version = "0.3.36", features = ["serde"] }

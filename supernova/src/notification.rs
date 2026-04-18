@@ -80,8 +80,8 @@ struct Keys {
 #[serde(rename_all = "camelCase")]
 pub(super) struct Subscription {
     endpoint: url::Url,
-    #[serde(default, with = "time::serde::timestamp::milliseconds::option")]
-    expiration_time: Option<OffsetDateTime>,
+    // #[serde(default, with = "time::serde::timestamp::milliseconds::option")]
+    // expiration_time: Option<OffsetDateTime>,
     keys: Keys,
 }
 
@@ -114,7 +114,7 @@ pub(super) async fn create_push_notification(
         tracing::info!("Sending push notification to {}", subscription.endpoint);
 
         let mut salt = [0u8; 16];
-        getrandom::getrandom(&mut salt).expect("Failed to generate random salt");
+        getrandom::fill(&mut salt).expect("Failed to generate random salt");
 
         let PushMessageParameters {
             content,

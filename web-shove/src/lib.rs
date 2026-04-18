@@ -1,14 +1,8 @@
-use std::{rc::Rc, time::Duration};
+use std::rc::Rc;
 
-use aes_gcm::{
-    aead::{heapless, AeadMutInPlace, OsRng},
-    KeyInit,
-};
-use base64::{prelude::BASE64_URL_SAFE_NO_PAD, Engine};
-use p256::ecdsa::{signature::Signer, Signature, SigningKey};
-use rand_chacha::rand_core::RngCore;
-use ring::rand::{self, SecureRandom};
-use time::OffsetDateTime;
+use ::rand::{RngCore, SeedableRng};
+use aes_gcm::{KeyInit, aead::AeadMutInPlace};
+use libcrux_hkdf::{Hkdf, Sha2_256};
 pub mod authorization_header;
 mod encrypted_content_encoding;
 mod experiments;
@@ -37,12 +31,13 @@ pub fn create_push_message_payload(
     user_agent_public_key: &[u8; PUBLIC_KEY_LENGTH],
     authentication_secret: &[u8; 16],
 ) -> PushMessageParameters {
+    let mut random = rand_chacha::ChaCha20Rng::from_os_rng();
     // Temporary keys for Elliptic Curve Diffie-Hellman key exchange
     let (application_server_private_key, mut application_server_public_key) =
-        libcrux_ecdh::key_gen(libcrux_ecdh::Algorithm::P256, &mut OsRng).unwrap();
-
+        libcrux_ecdh::key_gen(libcrux_ecdh::Algorithm::P256, &mut random).unwrap();
     let mut salt = [0u8; 16];
-    OsRng.fill_bytes(&mut salt);
+
+    random.fill_bytes(&mut salt);
 
     let application_server_private_key = &application_server_private_key.try_into().unwrap();
     //TODO solve this a better way instead of shifting all 64 bytes
@@ -119,13 +114,13 @@ pub fn create_push_message_payload(
 
 //TODO use ring when we know it works and figure out deterministic key generation for testing as it only generates ephemeral keys
 fn create_pseudo_random_key(authentication_secret: &[u8; 16], ecdh_secret: &[u8; 32]) -> [u8; 32] {
-    libcrux_hkdf::extract(
-        libcrux_hkdf::Algorithm::Sha256,
-        authentication_secret,
-        ecdh_secret,
-    )
-    .try_into()
-    .expect("Expected 32 bytes for SHA256")
+    //TODO check out Classify trait in libcrux_secrets
+    let mut pseudo_random_key = [0; 32];
+    Hkdf::<Sha2_256>::extract(&mut pseudo_random_key, authentication_secret, ecdh_secret)
+        // Should not error if I understood docs correctly: https://docs.rs/libcrux-hkdf/latest/libcrux_hkdf/struct.Hkdf.html#method.extract
+        .expect("Lengths should be fixed by input types");
+
+    pseudo_random_key
 }
 
 fn create_shared_ecdh_secret(
@@ -504,8 +499,7 @@ mod test {
         #[rstest]
         fn can_create_content_encoding_header(#[from(rfc_8291_example)] fixture: Fixture) {
             // Arrange
-            let expexted_content_encoding_header =
-                "DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtk\
+            let expexted_content_encoding_header = "DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtk\
                 gcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A8";
 
             // Act
@@ -584,8 +578,7 @@ mod test {
         #[rstest]
         fn can_produce_rfc8291_section_5_result(#[from(rfc_8291_example)] fixture: Fixture) {
             // Arrange
-            let expected_result =
-                "DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27ml\
+            let expected_result = "DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27ml\
                 mlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A_yl95bQpu6cVPT\
                 pK4Mqgkf1CXztLVBSt2Ks3oZwbuwXPXLWyouBWLVWGNWQexSgSxsj_Qulcy4a-fN";
 

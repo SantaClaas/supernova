@@ -10,12 +10,4 @@ impl<const LENGTH: usize> KeyId<LENGTH> {
         };
         Self(key_id)
     }
-
-    #[inline]
-    pub const fn length() -> usize {
-        LENGTH
-    }
-}
-fn impossible() {
-    let key = KeyId::<259>::new([0; 259]);
 }
