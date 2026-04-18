@@ -6,9 +6,9 @@ use axum::{
 };
 use base64::{
     Engine,
-    prelude::{BASE64_STANDARD, BASE64_URL_SAFE_NO_PAD},
+    prelude::BASE64_URL_SAFE_NO_PAD,
 };
-use reqwest::{Method, Request, RequestBuilder, StatusCode};
+use reqwest::StatusCode;
 use serde::Deserialize;
 use time::OffsetDateTime;
 use url::Origin;
@@ -132,10 +132,10 @@ pub(super) async fn create_push_notification(
         let content_length = content.len();
         //TODO might need different encoding
         //TODO use headermap
-        let salt_encoded = BASE64_URL_SAFE_NO_PAD.encode(&salt);
+        let _salt_encoded = BASE64_URL_SAFE_NO_PAD.encode(salt);
 
         let body = reqwest::Body::from(content);
-        let encoded_dh = BASE64_URL_SAFE_NO_PAD.encode(application_server_public_key.as_ref());
+        let _encoded_dh = BASE64_URL_SAFE_NO_PAD.encode(application_server_public_key.as_ref());
         let crypto_key_header_value =
             HeaderValue::from_str(&format!("p256ecdsa={application_server_signing_key}")).unwrap();
 

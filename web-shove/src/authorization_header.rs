@@ -2,12 +2,11 @@ use std::time::SystemTime;
 
 use crate::{PRIVATE_KEY_LENGTH, PUBLIC_KEY_LENGTH};
 use base64::prelude::*;
-use http::{header, HeaderValue};
+use http::{HeaderValue, header};
 use josekit::{
     jws::JwsHeader,
     jwt::{self, JwtPayload},
 };
-use p256::ecdsa::{signature::Signer, Signature, SigningKey};
 use time::OffsetDateTime;
 
 //TODO support urgency header
@@ -24,43 +23,7 @@ pub struct TokenData<'a> {
     pub issued_at: OffsetDateTime,
 }
 
-impl<'a> TokenData<'a> {
-    fn encode(&self) -> String {
-        let formatted = format!(
-            r#"{{"aud":"{audience}","exp":"{expires}","sub":"{subject}"}}"#,
-            audience = self.push_service_origin,
-            // not_before = self.not_before.unix_timestamp(),
-            expires = self.expires.unix_timestamp(),
-            // issued_at = self.issued_at.unix_timestamp(),
-            subject = match self.subject {
-                Subject::Email(email) => format!(r#"mailto:{}"#, email),
-                Subject::Https(https) => format!(r#"{}"#, https),
-            }
-        );
-
-        BASE64_URL_SAFE_NO_PAD.encode(formatted.as_bytes())
-    }
-}
-
-fn create_jwt(data: TokenData, private_key: &[u8; PRIVATE_KEY_LENGTH]) -> String {
-    //TODO check if subject is optional
-    const JWT_INFO: &str = r#"{"typ":"JWT","alg":"ES256"}"#;
-    let jwt_info = BASE64_URL_SAFE_NO_PAD.encode(JWT_INFO);
-    // Can not be more than 24 hours
-    // Just naively format a string
-    let jwt_data = data.encode();
-    let signing_material = format!("{}.{}", jwt_info, jwt_data);
-
-    let key = SigningKey::from_slice(private_key).unwrap();
-
-    let signature: Signature = key.sign(signing_material.as_bytes());
-    //TODO why is there only to_vec and no slice
-    let signature = BASE64_URL_SAFE_NO_PAD.encode(signature.to_vec());
-    let token = format!("{}.{}", signing_material, signature);
-
-    token
-}
-fn create_jwt_2(
+fn create_jwt(
     data: TokenData,
     private_key: &[u8; PRIVATE_KEY_LENGTH],
     public_key: &[u8; PUBLIC_KEY_LENGTH],
@@ -73,7 +36,7 @@ fn create_jwt_2(
         r#"{{"kty":"EC","crv":"P-256","x":"{x}","y":"{y}","d":"{d}"}}"#,
         x = BASE64_URL_SAFE_NO_PAD.encode(&public_key[1..33]),
         y = BASE64_URL_SAFE_NO_PAD.encode(&public_key[33..65]),
-        d = BASE64_URL_SAFE_NO_PAD.encode(&private_key)
+        d = BASE64_URL_SAFE_NO_PAD.encode(private_key)
     );
 
     println!("{jwk}");
@@ -88,12 +51,12 @@ fn create_jwt_2(
     payload.set_issued_at(&now);
     payload.set_subject(match data.subject {
         Subject::Email(email) => format!(r#"mailto:{}"#, email),
-        Subject::Https(https) => format!(r#"{}"#, https),
+        Subject::Https(https) => https.to_string(),
     });
 
     let signer = josekit::jws::ES256.signer_from_jwk(&jwk).unwrap();
-    let encoded = jwt::encode_with_signer(&payload, &header, &signer).unwrap();
-    encoded
+    
+    jwt::encode_with_signer(&payload, &header, &signer).unwrap()
 }
 
 pub fn create(
@@ -102,7 +65,7 @@ pub fn create(
     public_key: &[u8; PUBLIC_KEY_LENGTH],
 ) -> (http::header::HeaderName, http::header::HeaderValue) {
     // http::header::AUTHORIZATION
-    let token = create_jwt_2(data, private_key, public_key);
+    let token = create_jwt(data, private_key, public_key);
 
     let value = HeaderValue::from_str(format!("WebPush {}", token).as_str()).unwrap();
     (header::AUTHORIZATION, value)
@@ -133,10 +96,10 @@ mod test {
             .try_into()
             .unwrap();
 
-        const EXPECTED_TOKEN :&str = "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiJ9.eyJhdWQiOiJodHRwczovL2ZjbS5nb29nbGVhcGlzLmNvbSIsIm5iZiI6IjE3MzM2MDE4MDIiLCJleHAiOiIxNzMzNjAyMTAyIiwiaWF0IjoxNzMzNjAxODAyfQ.p9vmEmkAC38-mVPjS2MaZNOfFcVJPWo0v3K8S9ivTsADP_Oq1q5DmNow773HHWwO0VnQb_Hk84oTRzzrhjOq7g";
+        const EXPECTED_TOKEN: &str = "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiJ9.eyJhdWQiOiJodHRwczovL2ZjbS5nb29nbGVhcGlzLmNvbSIsIm5iZiI6IjE3MzM2MDE4MDIiLCJleHAiOiIxNzMzNjAyMTAyIiwiaWF0IjoxNzMzNjAxODAyfQ.p9vmEmkAC38-mVPjS2MaZNOfFcVJPWo0v3K8S9ivTsADP_Oq1q5DmNow773HHWwO0VnQb_Hk84oTRzzrhjOq7g";
 
         // Act
-        let actual_token = create_jwt_2(
+        let actual_token = create_jwt(
             TokenData {
                 subject,
                 push_service_origin,

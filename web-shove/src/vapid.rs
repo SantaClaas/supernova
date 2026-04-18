@@ -18,7 +18,7 @@ impl Vapid {
 
         let private_bytes = private_key.to_bytes();
         assert_eq!(32, private_bytes.len());
-        let private_bytes = private_bytes.try_into().unwrap();
+        let private_bytes = private_bytes.into();
         let point = public_key.to_encoded_point(false);
         let public_bytes: &[u8] = point.as_bytes();
         assert_eq!(65, public_bytes.len());
@@ -36,7 +36,7 @@ impl Vapid {
         let private_key = SigningKey::from_bytes(private_key.into()).unwrap();
         let public_key = private_key.verifying_key();
         let private_bytes = private_key.to_bytes();
-        let private_bytes = private_bytes.try_into().unwrap();
+        let private_bytes = private_bytes.into();
         let point = public_key.to_encoded_point(false);
         let public_bytes = point.as_bytes();
         assert_eq!(65, public_bytes.len());

@@ -95,7 +95,7 @@ pub(super) async fn setup() -> Result<Secrets, Error> {
         ids: ids_by_variable.keys().copied().collect(),
     };
 
-    let a = client.secrets().get_by_ids(request).await;
+    let _a = client.secrets().get_by_ids(request).await;
     todo!()
     // let responses = client.secrets().get_by_ids(request).await?;
 

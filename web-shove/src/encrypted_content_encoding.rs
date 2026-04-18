@@ -123,7 +123,7 @@ impl Record {
         let new_length = self.length + Self::PADDING_LENGTH;
         let mut buffer = &mut self.content[..new_length];
 
-        provider.aes_128_gcm_encrypt(&mut buffer, key, nonce);
+        provider.aes_128_gcm_encrypt(buffer, key, nonce);
 
         Ok(CipherText {
             content: self.content,

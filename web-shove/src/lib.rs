@@ -53,7 +53,7 @@ pub fn create_push_message_payload(
     let key_info = create_key_info(application_server_public_key, user_agent_public_key);
 
     // # HKDF-Extract(salt=auth_secret, IKM=ecdh_secret)
-    let pseudo_random_key = create_pseudo_random_key(&authentication_secret, &ecdh_secret);
+    let pseudo_random_key = create_pseudo_random_key(authentication_secret, &ecdh_secret);
     // # HKDF-Expand(PRK_key, key_info, L_key=32)
     let input_keying_material = libcrux_hmac::hmac(
         libcrux_hmac::Algorithm::Sha256,
@@ -91,12 +91,12 @@ pub fn create_push_message_payload(
 
     assert_eq!(12, nonce.len());
     //TODO add padding to payload/plaintext?
-    let ciphertext = encrypt_plain_text(content_encryption_key, &plaintext, nonce);
+    let ciphertext = encrypt_plain_text(content_encryption_key, plaintext, nonce);
     let header = create_content_encoding_header(
         &salt,
         // Size might be fixed to add padding to avoid side channel by checking message size?
         &RECORD_SIZE,
-        &application_server_public_key,
+        application_server_public_key,
     );
 
     //TODO reduce allocation
