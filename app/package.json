@@ -9,11 +9,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "solid-js": "^1.9.11"
+    "solid-js": "^1.9.11",
+    "temporal-polyfill": "^0.3.2"
   },
   "devDependencies": {
     "@types/node": "^24.12.0",
-    "typescript": "~5.9.3",
+    "typescript": "~6.0.3",
     "vite": "^8.0.1",
     "vite-plugin-solid": "^2.11.11"
   }
