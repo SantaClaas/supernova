@@ -46,6 +46,27 @@ function App() {
   return (
     <>
       <h1>Time</h1>
+      <span class="border-red-500 bg-red-300 rounded-full ms-4 py-2 px-4 font-serif font-black border-4 text-red-900">
+        Monday
+      </span>
+      <span class="border-orange-500 bg-orange-300 rounded-full ms-4 py-2 px-4 font-serif font-black border-4 text-orange-900">
+        Tuesday
+      </span>
+      <span class="border-yellow-500 bg-yellow-300 rounded-full ms-4 py-2 px-4 font-serif font-black border-4 text-yellow-900">
+        Wednesday
+      </span>
+      <span class="border-green-500 bg-green-300 rounded-full ms-4 py-2 px-4 font-serif font-black border-4 text-green-900">
+        Thursday
+      </span>
+      <span class="border-blue-500 bg-blue-300 rounded-full ms-4 py-2 px-4 font-serif font-black border-4 text-blue-900">
+        Friday
+      </span>
+      <span class="border-indigo-500 bg-indigo-300 rounded-full ms-4 py-2 px-4 font-serif font-black border-4 text-indigo-900">
+        Saturday
+      </span>
+      <span class="border-violet-500 bg-violet-300 rounded-full ms-4 py-2 px-4 font-serif font-black border-4 text-violet-900">
+        Sunday
+      </span>
       <table>
         <thead>
           <tr>
