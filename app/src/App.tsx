@@ -104,7 +104,11 @@ function App() {
             return (
               <article
                 data-day={date.dayOfWeek}
-                class="col-span-full grid grid-cols-subgrid grid-rows-2 gap-4 rounded-4xl p-4 [corner-shape:squircle] data-[day=1]:bg-red-500 data-[day=2]:bg-orange-500 data-[day=3]:bg-yellow-500 data-[day=4]:bg-green-500 data-[day=5]:bg-blue-500 data-[day=6]:bg-indigo-500 data-[day=7]:bg-violet-500"
+                class="col-span-full grid grid-cols-subgrid grid-rows-(--grid-rows) gap-4 rounded-4xl p-4 [corner-shape:squircle] data-[day=1]:bg-red-500 data-[day=2]:bg-orange-500 data-[day=3]:bg-yellow-500 data-[day=4]:bg-green-500 data-[day=5]:bg-blue-500 data-[day=6]:bg-indigo-500 data-[day=7]:bg-violet-500"
+                style={{
+                  // `grid-row: 1 / -1;` (`row-span-full`) does not work without a known row length
+                  "--grid-rows": `repeat(${item.entries.length}, minmax(0, 1fr))`,
+                }}
               >
                 <time class="row-span-full block">
                   <span>{weekday}</span>
