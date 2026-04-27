@@ -4,8 +4,6 @@ use ::rand::{RngCore, SeedableRng};
 use aes_gcm::{KeyInit, aead::AeadMutInPlace};
 use libcrux_hkdf::{Hkdf, Sha2_256};
 pub mod authorization_header;
-mod encrypted_content_encoding;
-mod experiments;
 pub mod vapid;
 
 const KEY_INFO: &[u8; 13] = b"WebPush: info";

@@ -14,7 +14,6 @@ use axum::Router;
 use axum::routing::{get, post};
 use base64::Engine;
 use base64::prelude::BASE64_URL_SAFE_NO_PAD;
-use dotenvy::dotenv;
 use notification::Subscription;
 use secrets::Secrets;
 use tokio::sync::Mutex;
@@ -44,7 +43,8 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    dotenv().ok();
+    #[cfg(debug_assertions)]
+    dotenvy::dotenv().ok();
 
     let public_path = if cfg!(debug_assertions) {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("public")
