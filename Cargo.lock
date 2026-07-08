@@ -46,6 +46,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "afterglow"
+version = "0.1.0"
+dependencies = [
+ "afterglow-macros",
+ "async-stream",
+ "axum 0.8.9",
+ "bytes",
+ "futures",
+ "tokio",
+]
+
+[[package]]
+name = "afterglow-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
