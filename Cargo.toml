@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "afterglow",
     "afterglow-macros",
+    "shlepper",
     "supernova",
     "supernovi",
     "web-shove",
