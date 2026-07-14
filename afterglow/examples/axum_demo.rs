@@ -9,7 +9,11 @@
 //! chunks trickle in over the next ~2.5 seconds. The "Live price" section
 //! uses `@*{...}` (a stream hole) instead of `@{...}` (a future hole): it
 //! patches the same slot five times as new ticks arrive, rather than
-//! resolving once.
+//! resolving once. The "Status" section uses an async *attribute*
+//! (`class=@{...}`): watch its whole `<div>` get replaced once the
+//! attribute resolves — including the still-pending nested detail hole
+//! inside it, which keeps the *same* marker id across that replacement and
+//! resolves normally afterward.
 
 use std::net::Ipv4Addr;
 use std::time::Duration;
@@ -61,6 +65,20 @@ fn live_price() -> impl Stream<Item = Node> {
     }
 }
 
+async fn status_class() -> &'static str {
+    sleep(Duration::from_millis(600)).await;
+    "status-ok"
+}
+
+/// Resolves *after* `status_class` (1.8s vs. 0.6s), on purpose: it shows the
+/// swap triggered by the async attribute reusing this hole's marker id
+/// rather than re-running or losing it — its own patch lands normally,
+/// afterward, targeting the marker that survived the swap.
+async fn status_detail() -> Node {
+    sleep(Duration::from_millis(1800)).await;
+    html! { "All systems operational" }
+}
+
 // Fully static — evaluated at compile time; the crate name and version are
 // spliced in via `concat!`, so the whole footer is one `&'static str` in the
 // binary.
@@ -91,6 +109,12 @@ async fn index() -> Response {
                 <section>
                     <h2>"Live price"</h2>
                     @*{live_price()} else { <span>"waiting for first tick…"</span> }
+                </section>
+                <section>
+                    <h2>"Status"</h2>
+                    <div class=@{status_class()} else "status-pending">
+                        "Detail: " @{status_detail()}
+                    </div>
                 </section>
                 {FOOTER}
             </body>

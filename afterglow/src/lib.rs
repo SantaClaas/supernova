@@ -24,6 +24,45 @@
 //! cancellation, do **not** `tokio::spawn` them and hand their `JoinHandle`s
 //! to the tree — spawned tasks detach from drop-based cancellation and keep
 //! running after the response is gone.
+//!
+//! # Async attributes
+//!
+//! Attribute values can be async too ([`Node::element_with_pending_attributes`],
+//! or `attr=@{future}` in `html!`), but the mechanism is different from a
+//! content hole, because the wire format has **no attribute-level patch** —
+//! the only way to change an attribute declaratively is to replace the
+//! element that carries it. So instead of a hole *inside* the markup, an
+//! element with a pending attribute renders its fallback attributes
+//! immediately and, once the attribute future resolves, the **entire
+//! element — open tag, attributes, and all descendants — is replaced in one
+//! `<template>` patch.**
+//!
+//! This has a real, unavoidable cost, exactly once per element, at the
+//! moment its attribute(s) resolve:
+//!
+//! - **The whole subtree is torn down and a new DOM node inserted.** Any
+//!   browser-side state tied to it — focus, scroll position, in-progress
+//!   form input, CSS transition/animation state, listeners attached by
+//!   other client-side code — is lost. This is inherent to the wire format
+//!   having no attribute-only patch; nothing in this crate can avoid it, so
+//!   scope `attr=@{...}` to small elements — a large subtree behind an
+//!   async attribute means a large, jarring remount.
+//!
+//! What it does *not* cost, because the replacement is built from the
+//! element's *current* state rather than re-run from scratch:
+//!
+//! - **Nested `@{...}`/`@*{...}` holes are never re-run or duplicated.** A
+//!   child hole that already resolved by the time the attribute resolves is
+//!   inlined directly into the replacement; one that's still pending
+//!   reconstructs its own marker under the *same* id, so its still-running
+//!   future or stream keeps a valid target after the swap and its future
+//!   patches keep landing correctly — no wasted computation, no patch
+//!   addressed to a marker that no longer exists.
+//! - **A nested `@*{...}` stream hole's history before the swap is
+//!   collapsed to its latest value.** If several values arrived before the
+//!   attribute resolved, only the most recent is inlined into the
+//!   replacement — not the full sequence. The stream itself is untouched
+//!   and keeps patching normally afterward.
 
 // Allows macro-generated `::afterglow::...` paths to resolve inside this
 // crate's own tests and examples.

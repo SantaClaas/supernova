@@ -1,5 +1,6 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io;
+use std::sync::{Arc, Mutex};
 
 use async_stream::stream;
 use bytes::Bytes;
@@ -7,6 +8,21 @@ use futures::stream::{BoxStream, SelectAll, Stream, StreamExt};
 
 use crate::node::{Node, Render};
 use crate::shell::{HtmlBuf, Shell, SlotId, SlotSource, render_shell};
+
+/// Cache cells registered by `PendingAttributes` elements, keyed by the id
+/// of the hole whose resolved HTML they should receive. Seeded from the
+/// initial shell and extended after every subsequent resolution (a newly
+/// resolved subtree can itself contain a new `PendingAttributes` element).
+/// Written to — in addition to the normal `<template>` patch — whenever a
+/// tracked slot resolves, so a later element-attribute swap can inline
+/// whatever is currently known instead of re-running or duplicating work.
+type LiveCache = HashMap<SlotId, Arc<Mutex<Option<String>>>>;
+
+fn record_resolution(live_cache: &LiveCache, id: SlotId, html: &str) {
+    if let Some(state) = live_cache.get(&id) {
+        *state.lock().expect("cache mutex is never held across a panic") = Some(html.to_owned());
+    }
+}
 
 /// A slot event tagged with the slot's id: a value to patch into the slot,
 /// or the end of the slot's source (used by the ordered driver's gate).
@@ -60,21 +76,24 @@ pub fn render_stream(root: impl Render) -> impl Stream<Item = io::Result<Bytes>>
     let root = root.into_node();
     stream! {
         let mut next_id: SlotId = 0;
-        let shell = render_shell(root, &mut next_id);
+        let Shell { html, slots, cache_registrations } = render_shell(root, &mut next_id);
+        let mut live_cache: LiveCache = cache_registrations.into_iter().collect();
         let mut pending: SelectAll<TaggedStream> = futures::stream::select_all(
-            shell.slots.into_iter().map(|(id, source)| tag(id, source)),
+            slots.into_iter().map(|(id, source)| tag(id, source)),
         );
 
-        yield Ok(shell.html.into_bytes());
+        yield Ok(html.into_bytes());
 
         while let Some(event) = pending.next().await {
             let SlotEvent::Value(id, node) = event else {
                 continue;
             };
-            let Shell { html, slots } = render_shell(node, &mut next_id);
+            let Shell { html, slots, cache_registrations } = render_shell(node, &mut next_id);
+            live_cache.extend(cache_registrations);
             for (new_id, source) in slots {
                 pending.push(tag(new_id, source));
             }
+            record_resolution(&live_cache, id, html.as_str());
             yield Ok(template_chunk(id, html.as_str()));
         }
     }
@@ -96,12 +115,13 @@ pub fn render_stream_ordered(
     let root = root.into_node();
     stream! {
         let mut next_id: SlotId = 0;
-        let shell = render_shell(root, &mut next_id);
+        let Shell { html, slots, cache_registrations } = render_shell(root, &mut next_id);
+        let mut live_cache: LiveCache = cache_registrations.into_iter().collect();
         let mut pending: SelectAll<TaggedStream> = futures::stream::select_all(
-            shell.slots.into_iter().map(|(id, source)| tag(id, source)),
+            slots.into_iter().map(|(id, source)| tag(id, source)),
         );
 
-        yield Ok(shell.html.into_bytes());
+        yield Ok(html.into_bytes());
 
         // The gate: `emit_next` is the lowest still-blocked slot. Chunks for
         // blocked slots are buffered; ends without a value are remembered so
@@ -113,10 +133,12 @@ pub fn render_stream_ordered(
         while let Some(event) = pending.next().await {
             match event {
                 SlotEvent::Value(id, node) => {
-                    let Shell { html, slots } = render_shell(node, &mut next_id);
+                    let Shell { html, slots, cache_registrations } = render_shell(node, &mut next_id);
+                    live_cache.extend(cache_registrations);
                     for (new_id, source) in slots {
                         pending.push(tag(new_id, source));
                     }
+                    record_resolution(&live_cache, id, html.as_str());
                     if id < emit_next {
                         yield Ok(template_chunk(id, html.as_str()));
                     } else {

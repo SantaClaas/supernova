@@ -2,7 +2,7 @@
 //! this crate directly.
 
 use proc_macro2::{Delimiter, Span, TokenStream, TokenTree};
-use quote::quote;
+use quote::{format_ident, quote};
 
 /// JSX-like templating macro producing an `afterglow::Node`.
 ///
@@ -29,6 +29,16 @@ use quote::quote;
 ///   `<template for="N">` patch as it arrives. Takes the same optional
 ///   `else { fallback }` form; an empty source simply leaves the fallback in
 ///   place. See `Node::stream` for cancellation and termination semantics.
+/// - **Async attributes**: `attr=@{future}`, optionally followed by
+///   `else "literal"` / `else {expr}` for the value shown until it resolves
+///   (omit `else` and the attribute is simply absent until then). There is
+///   no attribute-level patch in the wire format, so once `future` resolves,
+///   the **whole element is replaced** — not just the attribute. See
+///   `Node::element_with_pending_attributes` and the crate-level "Async
+///   attributes" docs for exactly what that costs (a full DOM remount of
+///   the element and its descendants) and what it doesn't (nested
+///   `@{...}`/`@*{...}` holes inside such an element keep resolving
+///   correctly through the swap, never re-run or duplicated).
 /// - **Const interpolation**: `const { expr }` in child position splices a
 ///   compile-time string into the surrounding static segment via `concat!`,
 ///   e.g. `const { env!("CARGO_PKG_NAME") }`. The expression must be a
@@ -103,6 +113,13 @@ enum AttributeValue {
     Bare,
     Literal(String),
     Expression(syn::Expr),
+    /// `attr=@{future}`, optionally followed by `else "literal"` /
+    /// `else {expr}`. With no `else`, the attribute is simply absent from
+    /// the fallback until the future resolves.
+    Pending {
+        future: syn::Expr,
+        fallback: Option<syn::Expr>,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -288,23 +305,30 @@ impl Parser {
 
         let value = if self.peek_is_punct('=') {
             self.advance();
-            match self.advance() {
-                Some(TokenTree::Literal(literal)) => {
-                    let syn::Lit::Str(string) = syn::Lit::new(literal.clone()) else {
-                        return Err(syn::Error::new(
-                            literal.span(),
-                            "attribute values must be string literals or `{expr}`",
+            if self.peek_is_punct('@') {
+                self.advance();
+                let future = self.parse_brace_expr("expected `{future}` after `@`")?;
+                let fallback = self.parse_optional_attribute_fallback()?;
+                AttributeValue::Pending { future, fallback }
+            } else {
+                match self.advance() {
+                    Some(TokenTree::Literal(literal)) => {
+                        let syn::Lit::Str(string) = syn::Lit::new(literal.clone()) else {
+                            return Err(syn::Error::new(
+                                literal.span(),
+                                "attribute values must be string literals, `{expr}`, or `@{future}`",
+                            ));
+                        };
+                        AttributeValue::Literal(string.value())
+                    }
+                    Some(TokenTree::Group(group)) if group.delimiter() == Delimiter::Brace => {
+                        AttributeValue::Expression(syn::parse2(group.stream())?)
+                    }
+                    _ => {
+                        return Err(self.error_here(
+                            "expected a string literal, `{expr}`, or `@{future}` after `=`",
                         ));
-                    };
-                    AttributeValue::Literal(string.value())
-                }
-                Some(TokenTree::Group(group)) if group.delimiter() == Delimiter::Brace => {
-                    AttributeValue::Expression(syn::parse2(group.stream())?)
-                }
-                _ => {
-                    return Err(
-                        self.error_here("expected a string literal or `{expr}` after `=`")
-                    );
+                    }
                 }
             }
         } else {
@@ -312,6 +336,35 @@ impl Parser {
         };
 
         Ok(Attribute { name, value })
+    }
+
+    /// Parses an optional `else "literal"` / `else {expr}` after
+    /// `attr=@{future}` — the value shown until the future resolves.
+    fn parse_optional_attribute_fallback(&mut self) -> syn::Result<Option<syn::Expr>> {
+        match self.peek() {
+            Some(TokenTree::Ident(ident)) if ident == "else" => {
+                self.advance();
+                match self.advance() {
+                    Some(TokenTree::Literal(literal)) => {
+                        let syn::Lit::Str(string) = syn::Lit::new(literal.clone()) else {
+                            return Err(syn::Error::new(
+                                literal.span(),
+                                "attribute fallback values must be string literals or `{expr}`",
+                            ));
+                        };
+                        Ok(Some(syn::Expr::Lit(syn::ExprLit {
+                            attrs: Vec::new(),
+                            lit: syn::Lit::Str(string),
+                        })))
+                    }
+                    Some(TokenTree::Group(group)) if group.delimiter() == Delimiter::Brace => {
+                        Ok(Some(syn::parse2(group.stream())?))
+                    }
+                    _ => Err(self.error_here("expected a string literal or `{expr}` after `else`")),
+                }
+            }
+            _ => Ok(None),
+        }
     }
 
     fn parse_text(&mut self) -> syn::Result<Ast> {
@@ -496,11 +549,19 @@ fn fold_nodes(nodes: Vec<Ast>, buffer: &mut SegmentBuffer, parts: &mut Vec<Token
                 attributes,
                 children,
             } => {
-                let all_attributes_static = attributes
+                let has_pending_attribute = attributes
                     .iter()
-                    .all(|attribute| !matches!(attribute.value, AttributeValue::Expression(_)));
+                    .any(|attribute| matches!(attribute.value, AttributeValue::Pending { .. }));
 
-                if all_attributes_static {
+                let all_attributes_static = !has_pending_attribute
+                    && attributes
+                        .iter()
+                        .all(|attribute| !matches!(attribute.value, AttributeValue::Expression(_)));
+
+                if has_pending_attribute {
+                    flush(buffer, parts);
+                    parts.push(build_pending_attributes_element(tag, attributes, children));
+                } else if all_attributes_static {
                     let out = buffer.literal_mut();
                     out.push('<');
                     out.push_str(&tag);
@@ -514,7 +575,9 @@ fn fold_nodes(nodes: Vec<Ast>, buffer: &mut SegmentBuffer, parts: &mut Vec<Token
                                 escape_attribute_into(&value, out);
                                 out.push('"');
                             }
-                            AttributeValue::Expression(_) => unreachable!("checked above"),
+                            AttributeValue::Expression(_) | AttributeValue::Pending { .. } => {
+                                unreachable!("checked above")
+                            }
                         }
                     }
                     out.push('>');
@@ -587,6 +650,65 @@ fn combine_parts(mut parts: Vec<TokenStream>) -> TokenStream {
     }
 }
 
+/// Builds `Node::element_with_pending_attributes(...)` for an element with
+/// one or more `attr=@{...}` attributes. Static/sync attribute values are
+/// evaluated once for the immediate fallback and again inside the future
+/// for the eventual swap (same accepted tradeoff as children in a whole
+/// element replace: cheap/pure expressions are fine, expressions that move
+/// a non-`Clone` capture won't compile — write the value into a local
+/// beforehand in that case). A `Pending` attribute's future is awaited
+/// exactly once; its resolved value feeds only the swap.
+fn build_pending_attributes_element(
+    tag: String,
+    attributes: Vec<Attribute>,
+    children: Vec<Ast>,
+) -> TokenStream {
+    let mut fallback_tokens = Vec::new();
+    let mut await_statements = Vec::new();
+    let mut resolved_tokens = Vec::new();
+
+    for (index, attribute) in attributes.into_iter().enumerate() {
+        let name = attribute.name;
+        match attribute.value {
+            AttributeValue::Pending { future, fallback } => {
+                if let Some(fallback) = fallback {
+                    fallback_tokens.push(quote! {
+                        (::std::borrow::Cow::Borrowed(#name), ::std::option::Option::Some(
+                            ::std::string::ToString::to_string(&(#fallback)),
+                        ))
+                    });
+                }
+                let binding = format_ident!("__afterglow_attr_{index}");
+                await_statements.push(quote! { let #binding = (#future).await; });
+                resolved_tokens.push(quote! {
+                    (::std::borrow::Cow::Borrowed(#name), ::std::option::Option::Some(
+                        ::std::string::ToString::to_string(&#binding),
+                    ))
+                });
+            }
+            value => {
+                let tokens = attribute_tokens(Attribute { name, value });
+                fallback_tokens.push(tokens.clone());
+                resolved_tokens.push(tokens);
+            }
+        }
+    }
+
+    let children = fold_to_parts(children);
+
+    quote! {
+        ::afterglow::Node::element_with_pending_attributes(
+            #tag,
+            async move {
+                #(#await_statements)*
+                ::std::vec![#(#resolved_tokens),*]
+            },
+            ::std::vec![#(#fallback_tokens),*],
+            ::std::vec![#(#children),*],
+        )
+    }
+}
+
 fn attribute_tokens(attribute: Attribute) -> TokenStream {
     let name = attribute.name;
     let value = match attribute.value {
@@ -597,6 +719,9 @@ fn attribute_tokens(attribute: Attribute) -> TokenStream {
         AttributeValue::Expression(expression) => quote! {
             ::std::option::Option::Some(::std::string::ToString::to_string(&(#expression)))
         },
+        AttributeValue::Pending { .. } => {
+            unreachable!("callers route Pending attributes through build_pending_attributes_element")
+        }
     };
     quote! { (::std::borrow::Cow::Borrowed(#name), #value) }
 }

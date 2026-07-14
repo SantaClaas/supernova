@@ -67,6 +67,19 @@ let body = render_stream(page);
   `futures::Stream` so that `std::async_iter::AsyncIterator` / `async gen`
   blocks can plug in without changing `Node`, the driver, or the wire format,
   once they stabilize.
+- **Async attributes**: `attr=@{future}` (optionally `else "literal"` / `else
+  {expr}` for the value shown until it resolves). There's no attribute-level
+  patch in the wire format, so once `future` resolves, **the whole element —
+  not just the attribute — is replaced** in one patch, exactly once. Nested
+  `@{...}`/`@*{...}` holes inside such an element are never re-run or
+  duplicated by that swap (an already-resolved one is inlined, a still-
+  pending one reuses its marker id so its future/stream keeps a valid
+  target) — but a nested `@*{...}` hole's history before the swap collapses
+  to its latest value, and the swap itself is still a full DOM remount of
+  the element and its descendants (lost focus/scroll/input state), which is
+  inherent to the wire format and not something this crate can avoid. See
+  the crate docs' "Async attributes" section for the full detail — scope
+  this to small elements.
 
 ## Streaming demo
 

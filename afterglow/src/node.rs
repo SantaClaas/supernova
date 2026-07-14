@@ -44,6 +44,20 @@ pub enum Node {
         stream: NodeStream,
         fallback: Option<Box<Node>>,
     },
+    /// An element whose attribute values are not all known yet. There is no
+    /// attribute-level patch in the wire format, so the shell renders
+    /// immediately with `fallback_attributes`, and once `attributes`
+    /// resolves the **whole element** — open tag, resolved attributes, and
+    /// children — is replaced in one `<template for="N">` patch. `children`
+    /// render immediately and keep patching independently in the meantime;
+    /// see [`Node::element_with_pending_attributes`] for what is preserved
+    /// and what is lost when the swap happens.
+    PendingAttributes {
+        tag: Cow<'static, str>,
+        fallback_attributes: Vec<Attribute>,
+        attributes: BoxFuture<'static, Vec<Attribute>>,
+        children: Vec<Node>,
+    },
 }
 
 /// Opaque handle to a sequence of nodes arriving over time — the payload of
@@ -164,6 +178,44 @@ impl Node {
         Node::Stream {
             stream: source.into_node_stream(),
             fallback: Some(Box::new(fallback)),
+        }
+    }
+
+    /// Creates an element with one or more async attribute values. The shell
+    /// renders immediately with `fallback_attributes` (omit an attribute
+    /// there and it's simply absent until resolved) and `children` rendered
+    /// and streaming exactly as they would in a normal element. Once
+    /// `attributes` resolves, the **entire element is replaced** — open tag,
+    /// resolved attributes, and children — in a single patch.
+    ///
+    /// `attributes` resolves to `Vec<Attribute>` via plain `ToString`, not
+    /// `Result<T, E>` — there's no sensible HTML representation for "one of
+    /// several attributes failed," so, like the synchronous `attr={expr}`
+    /// form, errors are the caller's responsibility (e.g. via
+    /// `.unwrap_or_else(...)` inside the future).
+    ///
+    /// This full-element replacement is a hard consequence of the wire
+    /// format having no attribute-only patch, not a limitation of this
+    /// crate — see the crate-level docs' "Async attributes" section for
+    /// exactly what is discarded (DOM node identity for the whole subtree)
+    /// and what is preserved (nested `@{...}`/`@*{...}` holes keep patching
+    /// correctly through the swap, never re-run or duplicated — though a
+    /// nested stream hole's history before the swap collapses to its latest
+    /// value).
+    pub fn element_with_pending_attributes<F>(
+        tag: impl Into<Cow<'static, str>>,
+        attributes: F,
+        fallback_attributes: Vec<Attribute>,
+        children: Vec<Node>,
+    ) -> Node
+    where
+        F: Future<Output = Vec<Attribute>> + Send + 'static,
+    {
+        Node::PendingAttributes {
+            tag: tag.into(),
+            fallback_attributes,
+            attributes: Box::pin(attributes),
+            children,
         }
     }
 }

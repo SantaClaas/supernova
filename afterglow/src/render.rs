@@ -72,6 +72,11 @@ fn write_resolved(node: Node, out: &mut String) {
         Node::Stream { .. } => {
             panic!("render_to_string cannot render Node::Stream; use render_stream instead")
         }
+        Node::PendingAttributes { .. } => {
+            panic!(
+                "render_to_string cannot render Node::PendingAttributes; use render_stream instead"
+            )
+        }
     }
 }
 
