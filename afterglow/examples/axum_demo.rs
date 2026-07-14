@@ -6,7 +6,10 @@
 //! ```
 //!
 //! The shell arrives immediately with spinners; the widget `<template>`
-//! chunks trickle in over the next ~2.5 seconds.
+//! chunks trickle in over the next ~2.5 seconds. The "Live price" section
+//! uses `@*{...}` (a stream hole) instead of `@{...}` (a future hole): it
+//! patches the same slot five times as new ticks arrive, rather than
+//! resolving once.
 
 use std::net::Ipv4Addr;
 use std::time::Duration;
@@ -16,6 +19,7 @@ use axum::body::Body;
 use axum::http::header;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use futures::Stream;
 use tokio::time::sleep;
 
 use afterglow::{Node, html, render_stream};
@@ -42,6 +46,30 @@ async fn stock_ticker() -> Result<Node, &'static str> {
     Err("stock service unavailable")
 }
 
+/// A stream hole: unlike the futures above, which fill their slot once, this
+/// patches the same `<template for="N">` slot repeatedly as ticks arrive —
+/// the wire-format mechanism the declarative partial updates format calls
+/// out for live-updating regions. Held open for ~2s total.
+fn live_price() -> impl Stream<Item = Node> {
+    async_stream::stream! {
+        let mut price = 100.0_f32;
+        for _ in 0..5 {
+            sleep(Duration::from_millis(400)).await;
+            price += (price * 0.01).max(0.5);
+            yield html! { <span>"$" {format!("{price:.2}")}</span> };
+        }
+    }
+}
+
+// Fully static — evaluated at compile time; the crate name and version are
+// spliced in via `concat!`, so the whole footer is one `&'static str` in the
+// binary.
+const FOOTER: Node = html! {
+    <footer>
+        "Created with " const { env!("CARGO_PKG_NAME") } " v" const { env!("CARGO_PKG_VERSION") }
+    </footer>
+};
+
 async fn index() -> Response {
     let page = html! {
         <html>
@@ -60,6 +88,11 @@ async fn index() -> Response {
                     <h2>"Stocks"</h2>
                     @{stock_ticker()}
                 </section>
+                <section>
+                    <h2>"Live price"</h2>
+                    @*{live_price()} else { <span>"waiting for first tick…"</span> }
+                </section>
+                {FOOTER}
             </body>
         </html>
     };

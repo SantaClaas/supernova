@@ -1,6 +1,7 @@
 //! Verifies `html!` expansion produces trees matching what the earlier
 //! phases' tests built by hand, by comparing rendered output.
 
+use std::borrow::Cow;
 use std::io;
 use std::time::Duration;
 
@@ -81,13 +82,73 @@ fn empty_macro_renders_nothing() {
 }
 
 #[test]
-fn multiple_top_level_nodes_form_a_fragment() {
+fn multiple_top_level_nodes_render_in_sequence() {
     let tree = html! {
         <dt>"term"</dt>
         <dd>"definition"</dd>
     };
 
     assert_eq!("<dt>term</dt><dd>definition</dd>", render_to_string(tree));
+}
+
+#[test]
+fn fully_static_template_folds_to_a_single_prerendered_node() {
+    let tree = html! {
+        <div class="a & b">
+            <p>"x < y"</p>
+            <br/>
+        </div>
+    };
+
+    // The macro escaped and concatenated everything at expansion time; the
+    // whole template is one borrowed segment living in the binary.
+    let Node::Html(Cow::Borrowed(html)) = tree else {
+        panic!("fully static templates should fold to one borrowed Html node");
+    };
+    assert_eq!("<div class=\"a &amp; b\"><p>x &lt; y</p><br></div>", html);
+}
+
+const FOOTER: Node = html! { <footer>"© 2026 — a < b"</footer> };
+
+#[test]
+fn fully_static_template_is_const_constructible() {
+    assert_eq!(
+        "<footer>© 2026 — a &lt; b</footer>",
+        render_to_string(FOOTER)
+    );
+}
+
+const BUILT_WITH: Node = html! {
+    <footer>"Built with " const { env!("CARGO_PKG_NAME") } " v" const { env!("CARGO_PKG_VERSION") }</footer>
+};
+
+#[test]
+fn const_interpolation_folds_into_a_single_const_constructible_segment() {
+    // Still one borrowed segment: the `const { env!(...) }` pieces were
+    // spliced in through `concat!` at compile time.
+    let Node::Html(Cow::Borrowed(html)) = BUILT_WITH else {
+        panic!("const-interpolated static template should fold to one borrowed Html node");
+    };
+    assert_eq!(
+        concat!(
+            "<footer>Built with ",
+            env!("CARGO_PKG_NAME"),
+            " v",
+            env!("CARGO_PKG_VERSION"),
+            "</footer>",
+        ),
+        html
+    );
+}
+
+#[test]
+fn const_interpolation_mixes_with_dynamic_holes() {
+    let user = "Ada";
+    let tree = html! {
+        <p>"hi " {user} ", this is " const { env!("CARGO_PKG_NAME") }</p>
+    };
+
+    assert_eq!("<p>hi Ada, this is afterglow</p>", render_to_string(tree));
 }
 
 struct Article {
@@ -125,8 +186,8 @@ async fn async_widgets_stream_through_the_phase_3_driver() {
 
     assert_eq!(
         vec![
-            "<main><?start id=\"0\"><p class=\"spinner\">loading article…</p><?end>\
-             <aside>score: <?marker id=\"1\"></aside></main>",
+            "<main><?start name=\"0\"><p class=\"spinner\">loading article…</p><?end>\
+             <aside>score: <?marker name=\"1\"></aside></main>",
             "<template for=\"0\"><article><h2>Streaming HTML</h2></article></template>",
             "<template for=\"1\">9001</template>",
         ],
@@ -147,7 +208,7 @@ async fn failing_widget_written_with_macro_renders_error_slot() {
 
     assert_eq!(
         vec![
-            "<div><?marker id=\"0\"></div>",
+            "<div><?marker name=\"0\"></div>",
             "<template for=\"0\"><span class=\"afterglow-error\">upstream unavailable</span></template>",
         ],
         chunks
@@ -164,8 +225,85 @@ async fn pending_widget_inside_fallback_matches_hand_built_tree() {
 
     assert_eq!(
         vec![
-            "<?start id=\"0\"><span>waiting for <?marker id=\"1\"></span><?end>",
+            "<?start name=\"0\"><span>waiting for <?marker name=\"1\"></span><?end>",
             "<template for=\"0\">9001</template>",
+            "<template for=\"1\">9001</template>",
+        ],
+        chunks
+    );
+}
+
+fn scores() -> impl futures::Stream<Item = u32> {
+    async_stream::stream! {
+        for score in [10u32, 20, 30] {
+            sleep(Duration::from_millis(10)).await;
+            yield score;
+        }
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn stream_hole_written_with_macro_patches_repeatedly() {
+    let page = html! { <div>@*{scores()}</div> };
+
+    let chunks = collect_chunks(render_stream(page)).await;
+
+    assert_eq!(
+        vec![
+            "<div><?marker name=\"0\"></div>",
+            "<template for=\"0\">10</template>",
+            "<template for=\"0\">20</template>",
+            "<template for=\"0\">30</template>",
+        ],
+        chunks
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn stream_hole_with_fallback_matches_hand_built_tree() {
+    let by_macro = html! {
+        @*{scores()} else { <p class="spinner">"waiting for scores…"</p> }
+    };
+    let by_hand = Node::stream_with_fallback(
+        scores(),
+        Node::element(
+            "p",
+            vec![("class".into(), Some("spinner".to_owned()))],
+            vec![Node::text("waiting for scores…")],
+        ),
+    );
+
+    let macro_chunks = collect_chunks(render_stream(by_macro)).await;
+    let hand_chunks = collect_chunks(render_stream(by_hand)).await;
+
+    assert_eq!(hand_chunks, macro_chunks);
+}
+
+async fn final_score() -> u32 {
+    // Resolves after all of scores()'s 10/20/30ms ticks, with no tie, so
+    // completion order between the two holes is unambiguous.
+    sleep(Duration::from_millis(35)).await;
+    9001
+}
+
+#[tokio::test(start_paused = true)]
+async fn stream_and_pending_holes_compose_in_one_template() {
+    let page = html! {
+        <main>
+            <aside>"live: " @*{scores()}</aside>
+            @{final_score()} else { <p>"loading final score…"</p> }
+        </main>
+    };
+
+    let chunks = collect_chunks(render_stream(page)).await;
+
+    assert_eq!(
+        vec![
+            "<main><aside>live: <?marker name=\"0\"></aside>\
+             <?start name=\"1\"><p>loading final score…</p><?end></main>",
+            "<template for=\"0\">10</template>",
+            "<template for=\"0\">20</template>",
+            "<template for=\"0\">30</template>",
             "<template for=\"1\">9001</template>",
         ],
         chunks

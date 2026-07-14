@@ -1,3 +1,6 @@
+// Keep in sync with the copies in afterglow-macros/src/lib.rs — the macro
+// applies the same escaping at expansion time when folding static content.
+
 /// Escapes text content: `&`, `<`, `>`.
 pub(crate) fn escape_text(input: &str, out: &mut String) {
     for character in input.chars() {

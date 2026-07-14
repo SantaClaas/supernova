@@ -1,4 +1,8 @@
+use std::borrow::Cow;
+
+use bytes::Bytes;
 use futures::future::BoxFuture;
+use futures::stream::BoxStream;
 
 use crate::escape::escape_text;
 use crate::node::Node;
@@ -6,22 +10,82 @@ use crate::render::{is_void_element, write_close_tag, write_open_tag};
 
 pub(crate) type SlotId = u64;
 
+/// What fills a slot: a future resolving to one node, or a stream of nodes
+/// each patched into the slot as it arrives.
+pub(crate) enum SlotSource {
+    Future(BoxFuture<'static, Node>),
+    Stream(BoxStream<'static, Node>),
+}
+
+/// Accumulates shell HTML while preserving zero-copy for the fully static
+/// case: the `html!` macro folds static templates into a single
+/// `Node::Html(Cow::Borrowed(...))` segment living in the binary, and a shell
+/// consisting of only that segment is sent via [`Bytes::from_static`] without
+/// ever being copied. Anything else falls back to one owned buffer.
+pub(crate) enum HtmlBuf {
+    Empty,
+    Static(&'static str),
+    Owned(String),
+}
+
+impl HtmlBuf {
+    fn push_cow(&mut self, content: Cow<'static, str>) {
+        if content.is_empty() {
+            return;
+        }
+        match (&mut *self, content) {
+            (HtmlBuf::Empty, Cow::Borrowed(content)) => *self = HtmlBuf::Static(content),
+            (HtmlBuf::Empty, Cow::Owned(content)) => *self = HtmlBuf::Owned(content),
+            (_, content) => self.owned_mut().push_str(&content),
+        }
+    }
+
+    fn owned_mut(&mut self) -> &mut String {
+        match self {
+            HtmlBuf::Owned(_) => {}
+            HtmlBuf::Empty => *self = HtmlBuf::Owned(String::new()),
+            HtmlBuf::Static(existing) => *self = HtmlBuf::Owned((*existing).to_owned()),
+        }
+        let HtmlBuf::Owned(owned) = self else {
+            unreachable!("converted to Owned above");
+        };
+        owned
+    }
+
+    pub(crate) fn as_str(&self) -> &str {
+        match self {
+            HtmlBuf::Empty => "",
+            HtmlBuf::Static(content) => content,
+            HtmlBuf::Owned(content) => content,
+        }
+    }
+
+    pub(crate) fn into_bytes(self) -> Bytes {
+        match self {
+            HtmlBuf::Empty => Bytes::new(),
+            HtmlBuf::Static(content) => Bytes::from_static(content.as_bytes()),
+            HtmlBuf::Owned(content) => Bytes::from(content),
+        }
+    }
+}
+
 /// The synchronous part of a render pass: everything already resolved is in
 /// `html` (with placeholder markers where `Pending` nodes were), and the
 /// extracted futures wait in `slots` to be driven by the stream.
 pub(crate) struct Shell {
-    pub(crate) html: String,
-    pub(crate) slots: Vec<(SlotId, BoxFuture<'static, Node>)>,
+    pub(crate) html: HtmlBuf,
+    pub(crate) slots: Vec<(SlotId, SlotSource)>,
 }
 
-/// Renders a tree without awaiting anything. Each `Pending` node gets a
-/// unique id from `next_id` and renders as `<?marker id="N">` (no fallback)
-/// or `<?start id="N">fallback<?end>`; its future is pulled out into the
-/// returned queue. Fallbacks are walked too, so a pending node nested inside
-/// another pending node's fallback is registered as its own slot.
+/// Renders a tree without awaiting anything. Each `Pending` or `Stream` node
+/// gets a unique id from `next_id` and renders as `<?marker name="N">` (no
+/// fallback) or `<?start name="N">fallback<?end>`; its source is pulled out
+/// into the returned queue. Fallbacks are walked too, so a pending node
+/// nested inside another pending node's fallback is registered as its own
+/// slot.
 pub(crate) fn render_shell(node: Node, next_id: &mut SlotId) -> Shell {
     let mut shell = Shell {
-        html: String::new(),
+        html: HtmlBuf::Empty,
         slots: Vec::new(),
     };
     write_shell(node, next_id, &mut shell);
@@ -30,19 +94,19 @@ pub(crate) fn render_shell(node: Node, next_id: &mut SlotId) -> Shell {
 
 fn write_shell(node: Node, next_id: &mut SlotId, shell: &mut Shell) {
     match node {
-        Node::Html(html) => shell.html.push_str(&html),
-        Node::Text(text) => escape_text(&text, &mut shell.html),
+        Node::Html(html) => shell.html.push_cow(html),
+        Node::Text(text) => escape_text(&text, shell.html.owned_mut()),
         Node::Element {
             tag,
             attributes,
             children,
         } => {
-            write_open_tag(&tag, &attributes, &mut shell.html);
+            write_open_tag(&tag, &attributes, shell.html.owned_mut());
             if !is_void_element(&tag) {
                 for child in children {
                     write_shell(child, next_id, shell);
                 }
-                write_close_tag(&tag, &mut shell.html);
+                write_close_tag(&tag, shell.html.owned_mut());
             }
         }
         Node::Fragment(children) => {
@@ -51,19 +115,37 @@ fn write_shell(node: Node, next_id: &mut SlotId, shell: &mut Shell) {
             }
         }
         Node::Pending { future, fallback } => {
-            let id = *next_id;
-            *next_id += 1;
-            shell.slots.push((id, future));
-            match fallback {
-                None => {
-                    shell.html.push_str(&format!("<?marker id=\"{id}\">"));
-                }
-                Some(fallback) => {
-                    shell.html.push_str(&format!("<?start id=\"{id}\">"));
-                    write_shell(*fallback, next_id, shell);
-                    shell.html.push_str("<?end>");
-                }
-            }
+            write_slot(SlotSource::Future(future), fallback, next_id, shell);
+        }
+        Node::Stream { stream, fallback } => {
+            write_slot(SlotSource::Stream(stream.inner), fallback, next_id, shell);
+        }
+    }
+}
+
+fn write_slot(
+    source: SlotSource,
+    fallback: Option<Box<Node>>,
+    next_id: &mut SlotId,
+    shell: &mut Shell,
+) {
+    let id = *next_id;
+    *next_id += 1;
+    shell.slots.push((id, source));
+    match fallback {
+        None => {
+            shell
+                .html
+                .owned_mut()
+                .push_str(&format!("<?marker name=\"{id}\">"));
+        }
+        Some(fallback) => {
+            shell
+                .html
+                .owned_mut()
+                .push_str(&format!("<?start name=\"{id}\">"));
+            write_shell(*fallback, next_id, shell);
+            shell.html.owned_mut().push_str("<?end>");
         }
     }
 }
@@ -86,7 +168,7 @@ mod test {
         let mut next_id = 0;
         let shell = render_shell(tree, &mut next_id);
 
-        assert_eq!("<div><?marker id=\"0\"></div>", shell.html);
+        assert_eq!("<div><?marker name=\"0\"></div>", shell.html.as_str());
         assert_eq!(1, shell.slots.len());
         assert_eq!(0, shell.slots[0].0);
         assert_eq!(1, next_id);
@@ -99,11 +181,28 @@ mod test {
         let mut next_id = 0;
         let mut shell = render_shell(tree, &mut next_id);
 
-        let (_, future) = shell.slots.pop().unwrap();
+        let (_, source) = shell.slots.pop().unwrap();
+        let SlotSource::Future(future) = source else {
+            panic!("pending node should register a future slot");
+        };
         let resolved = future
             .now_or_never()
             .expect("ready future should resolve immediately");
         assert_eq!("late &amp; escaped", crate::render_to_string(resolved));
+    }
+
+    #[test]
+    fn stream_node_renders_marker_and_queues_stream_source() {
+        let tree = Node::stream(futures::stream::iter([Node::text("a"), Node::text("b")]));
+
+        let mut next_id = 0;
+        let shell = render_shell(tree, &mut next_id);
+
+        assert_eq!("<?marker name=\"0\">", shell.html.as_str());
+        assert!(matches!(
+            shell.slots.as_slice(),
+            [(0, SlotSource::Stream(_))]
+        ));
     }
 
     #[test]
@@ -123,8 +222,8 @@ mod test {
         let shell = render_shell(tree, &mut next_id);
 
         assert_eq!(
-            "<div><?marker id=\"0\">between<?marker id=\"1\"><?marker id=\"2\"></div>",
-            shell.html
+            "<div><?marker name=\"0\">between<?marker name=\"1\"><?marker name=\"2\"></div>",
+            shell.html.as_str()
         );
         let ids: Vec<_> = shell.slots.iter().map(|(id, _)| *id).collect();
         assert_eq!(vec![0, 1, 2], ids);
@@ -141,8 +240,8 @@ mod test {
         let shell = render_shell(tree, &mut next_id);
 
         assert_eq!(
-            "<?start id=\"0\"><span>loading…</span><?end>",
-            shell.html
+            "<?start name=\"0\"><span>loading…</span><?end>",
+            shell.html.as_str()
         );
         assert_eq!(1, shell.slots.len());
     }
@@ -165,8 +264,8 @@ mod test {
         let shell = render_shell(tree, &mut next_id);
 
         assert_eq!(
-            "<?start id=\"0\"><div>outer fallback with <?marker id=\"1\"></div><?end>",
-            shell.html
+            "<?start name=\"0\"><div>outer fallback with <?marker name=\"1\"></div><?end>",
+            shell.html.as_str()
         );
         let ids: Vec<_> = shell.slots.iter().map(|(id, _)| *id).collect();
         assert_eq!(vec![0, 1], ids);
@@ -179,8 +278,21 @@ mod test {
         let mut next_id = 0;
         let shell = render_shell(tree, &mut next_id);
 
-        assert_eq!("<p>done</p>", shell.html);
+        assert_eq!("<p>done</p>", shell.html.as_str());
         assert!(shell.slots.is_empty());
         assert_eq!(0, next_id);
+    }
+
+    #[test]
+    fn fully_static_shell_reuses_the_bytes_baked_into_the_binary() {
+        static HTML: &str = "<p>prerendered</p>";
+
+        let mut next_id = 0;
+        let shell = render_shell(Node::raw(HTML), &mut next_id);
+        let bytes = shell.html.into_bytes();
+
+        assert_eq!(HTML.as_bytes(), bytes.as_ref());
+        // Zero-copy: the Bytes point directly at the static data.
+        assert_eq!(HTML.as_ptr(), bytes.as_ptr());
     }
 }

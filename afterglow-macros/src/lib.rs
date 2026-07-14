@@ -13,17 +13,43 @@ use quote::quote;
 /// - **Attributes**: `name="literal"`, `name={expr}` (the expression is
 ///   converted with `ToString` and escaped on render), or bare boolean
 ///   attributes like `disabled`.
-/// - **Text**: string literals in child position, escaped on render:
-///   `<p>"a < b"</p>`.
+/// - **Text**: string literals in child position, escaped: `<p>"a < b"</p>`.
 /// - **Interpolation**: `{expr}` in child position converts the expression
 ///   via `afterglow::Render` (strings and numbers render as escaped text).
 /// - **Async widgets**: `@{expr}` where `expr` is a future. Renders a
-///   `<?marker id="N">` placeholder in the shell; the resolved value is
+///   `<?marker name="N">` placeholder in the shell; the resolved value is
 ///   converted via `Render` (so `Result<impl Render, E: Display>` works and
 ///   an `Err` renders as an error slot).
 /// - **Fallback form**: `@{expr} else { <span>"loading…"</span> }` renders
-///   the fallback markup between `<?start id="N">` and `<?end>` until the
+///   the fallback markup between `<?start name="N">` and `<?end>` until the
 ///   future resolves. The fallback may itself contain `@{...}` widgets.
+/// - **Streamed values**: `@*{expr}` where `expr` implements
+///   `IntoNodeStream` (any `Stream` whose items implement `Render`). Renders
+///   the same placeholder as `@{...}`; each value is streamed as its own
+///   `<template for="N">` patch as it arrives. Takes the same optional
+///   `else { fallback }` form; an empty source simply leaves the fallback in
+///   place. See `Node::stream` for cancellation and termination semantics.
+/// - **Const interpolation**: `const { expr }` in child position splices a
+///   compile-time string into the surrounding static segment via `concat!`,
+///   e.g. `const { env!("CARGO_PKG_NAME") }`. The expression must be a
+///   literal or a built-in literal macro (`env!`, `include_str!`,
+///   `stringify!`, ...) — arbitrary `const` items are not accepted by
+///   `concat!`. The value is spliced **verbatim** (no escaping; it is
+///   developer-controlled), and the segment stays a single `&'static str`,
+///   so fully static templates using it remain const-constructible.
+///
+/// # Compile-time prerendering
+///
+/// All static markup is rendered and escaped at macro expansion time:
+/// adjacent tags, literal attribute values, and literal text collapse into
+/// `&'static str` segments stored in the binary. Dynamic holes — `{expr}`,
+/// `@{...}`, and elements with `attr={expr}` — are the only per-request
+/// construction work. A fully static template expands to a single
+/// `Node::Html(Cow::Borrowed(...))`, which is legal in const context:
+///
+/// ```ignore
+/// const FOOTER: Node = html! { <footer>"© 2026"</footer> };
+/// ```
 ///
 /// # Example
 ///
@@ -38,10 +64,50 @@ use quote::quote;
 #[proc_macro]
 pub fn html(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     match Parser::new(input.into()).parse_root() {
-        Ok(output) => output.into(),
+        Ok(nodes) => generate(nodes).into(),
         Err(error) => error.to_compile_error().into(),
     }
 }
+
+// ---------------------------------------------------------------------------
+// AST
+// ---------------------------------------------------------------------------
+
+enum Ast {
+    Element {
+        tag: String,
+        attributes: Vec<Attribute>,
+        children: Vec<Ast>,
+    },
+    Text(String),
+    Interpolation(syn::Expr),
+    /// `const { expr }` — a compile-time string spliced verbatim into the
+    /// surrounding static segment via `concat!`.
+    ConstHtml(syn::Expr),
+    Pending {
+        future: syn::Expr,
+        fallback: Option<Vec<Ast>>,
+    },
+    Stream {
+        source: syn::Expr,
+        fallback: Option<Vec<Ast>>,
+    },
+}
+
+struct Attribute {
+    name: String,
+    value: AttributeValue,
+}
+
+enum AttributeValue {
+    Bare,
+    Literal(String),
+    Expression(syn::Expr),
+}
+
+// ---------------------------------------------------------------------------
+// Parsing
+// ---------------------------------------------------------------------------
 
 struct Parser {
     tokens: Vec<TokenTree>,
@@ -95,17 +161,17 @@ impl Parser {
         matches!(self.peek(), Some(TokenTree::Punct(punct)) if punct.as_char() == expected)
     }
 
-    fn parse_root(mut self) -> syn::Result<TokenStream> {
+    fn parse_root(mut self) -> syn::Result<Vec<Ast>> {
         let nodes = self.parse_nodes()?;
         if self.peek().is_some() {
             return Err(self.error_here("unexpected token after markup"));
         }
-        Ok(combine_nodes(nodes))
+        Ok(nodes)
     }
 
     /// Parses child nodes until a closing tag (`</`) or end of input. The
     /// closing tag itself is left for the caller.
-    fn parse_nodes(&mut self) -> syn::Result<Vec<TokenStream>> {
+    fn parse_nodes(&mut self) -> syn::Result<Vec<Ast>> {
         let mut nodes = Vec::new();
         loop {
             match self.peek() {
@@ -125,11 +191,22 @@ impl Parser {
                     nodes.push(self.parse_interpolation()?);
                 }
                 Some(TokenTree::Punct(punct)) if punct.as_char() == '@' => {
-                    nodes.push(self.parse_pending()?);
+                    let is_stream = matches!(
+                        self.peek_second(),
+                        Some(TokenTree::Punct(second)) if second.as_char() == '*'
+                    );
+                    nodes.push(if is_stream {
+                        self.parse_stream()?
+                    } else {
+                        self.parse_pending()?
+                    });
+                }
+                Some(TokenTree::Ident(ident)) if ident == "const" => {
+                    nodes.push(self.parse_const()?);
                 }
                 Some(_) => {
                     return Err(self.error_here(
-                        "expected an element, a quoted string, `{expr}`, or `@{future}`",
+                        "expected an element, a quoted string, `{expr}`, `@{future}`, or `@*{stream}`",
                     ));
                 }
             }
@@ -159,7 +236,7 @@ impl Parser {
         Ok((name, span))
     }
 
-    fn parse_element(&mut self) -> syn::Result<TokenStream> {
+    fn parse_element(&mut self) -> syn::Result<Ast> {
         self.expect_punct('<')?;
         let (tag, tag_span) = self.parse_name()?;
 
@@ -169,7 +246,11 @@ impl Parser {
                 Some(TokenTree::Punct(punct)) if punct.as_char() == '/' => {
                     self.advance();
                     self.expect_punct('>')?;
-                    return Ok(build_element(&tag, attributes, Vec::new()));
+                    return Ok(Ast::Element {
+                        tag,
+                        attributes,
+                        children: Vec::new(),
+                    });
                 }
                 Some(TokenTree::Punct(punct)) if punct.as_char() == '>' => {
                     self.advance();
@@ -195,10 +276,14 @@ impl Parser {
         }
         self.expect_punct('>')?;
 
-        Ok(build_element(&tag, attributes, children))
+        Ok(Ast::Element {
+            tag,
+            attributes,
+            children,
+        })
     }
 
-    fn parse_attribute(&mut self) -> syn::Result<TokenStream> {
+    fn parse_attribute(&mut self) -> syn::Result<Attribute> {
         let (name, _) = self.parse_name()?;
 
         let value = if self.peek_is_punct('=') {
@@ -211,17 +296,10 @@ impl Parser {
                             "attribute values must be string literals or `{expr}`",
                         ));
                     };
-                    quote! {
-                        ::std::option::Option::Some(::std::string::String::from(#string))
-                    }
+                    AttributeValue::Literal(string.value())
                 }
                 Some(TokenTree::Group(group)) if group.delimiter() == Delimiter::Brace => {
-                    let expression: syn::Expr = syn::parse2(group.stream())?;
-                    quote! {
-                        ::std::option::Option::Some(
-                            ::std::string::ToString::to_string(&(#expression)),
-                        )
-                    }
+                    AttributeValue::Expression(syn::parse2(group.stream())?)
                 }
                 _ => {
                     return Err(
@@ -230,13 +308,13 @@ impl Parser {
                 }
             }
         } else {
-            quote! { ::std::option::Option::None }
+            AttributeValue::Bare
         };
 
-        Ok(quote! { (::std::borrow::Cow::Borrowed(#name), #value) })
+        Ok(Attribute { name, value })
     }
 
-    fn parse_text(&mut self) -> syn::Result<TokenStream> {
+    fn parse_text(&mut self) -> syn::Result<Ast> {
         let Some(TokenTree::Literal(literal)) = self.advance() else {
             unreachable!("parse_text is only called when peeking a literal");
         };
@@ -246,32 +324,66 @@ impl Parser {
                 "text content must be a quoted string; interpolate other values with `{expr}`",
             ));
         };
-        Ok(quote! { ::afterglow::Node::text(#string) })
+        Ok(Ast::Text(string.value()))
     }
 
-    fn parse_interpolation(&mut self) -> syn::Result<TokenStream> {
+    fn parse_interpolation(&mut self) -> syn::Result<Ast> {
         let Some(TokenTree::Group(group)) = self.advance() else {
             unreachable!("parse_interpolation is only called when peeking a brace group");
         };
-        let expression: syn::Expr = syn::parse2(group.stream())?;
-        Ok(quote! { ::afterglow::Render::into_node(#expression) })
+        Ok(Ast::Interpolation(syn::parse2(group.stream())?))
     }
 
-    /// Parses `@{future}` with an optional `else { fallback markup }`.
-    fn parse_pending(&mut self) -> syn::Result<TokenStream> {
-        self.expect_punct('@')?;
+    /// Parses `const { expr }`.
+    fn parse_const(&mut self) -> syn::Result<Ast> {
+        self.advance(); // the `const` keyword
         let Some(TokenTree::Group(group)) = self.peek() else {
-            return Err(self.error_here("expected `{future}` after `@`"));
+            return Err(self.error_here("expected `{ expr }` after `const`"));
         };
         if group.delimiter() != Delimiter::Brace {
-            return Err(self.error_here("expected `{future}` after `@`"));
+            return Err(self.error_here("expected `{ expr }` after `const`"));
         }
         let Some(TokenTree::Group(group)) = self.advance() else {
             unreachable!("peeked above");
         };
-        let expression: syn::Expr = syn::parse2(group.stream())?;
+        Ok(Ast::ConstHtml(syn::parse2(group.stream())?))
+    }
 
-        let fallback = match self.peek() {
+    /// Parses `@{future}` with an optional `else { fallback markup }`.
+    fn parse_pending(&mut self) -> syn::Result<Ast> {
+        self.expect_punct('@')?;
+        let future = self.parse_brace_expr("expected `{future}` after `@`")?;
+        let fallback = self.parse_optional_else_fallback()?;
+        Ok(Ast::Pending { future, fallback })
+    }
+
+    /// Parses `@*{stream}` with an optional `else { fallback markup }`.
+    fn parse_stream(&mut self) -> syn::Result<Ast> {
+        self.expect_punct('@')?;
+        self.expect_punct('*')?;
+        let source = self.parse_brace_expr("expected `{stream}` after `@*`")?;
+        let fallback = self.parse_optional_else_fallback()?;
+        Ok(Ast::Stream { source, fallback })
+    }
+
+    /// Parses a `{ expr }` group, used by both `@{...}` and `@*{...}`.
+    fn parse_brace_expr(&mut self, error_message: &str) -> syn::Result<syn::Expr> {
+        let Some(TokenTree::Group(group)) = self.peek() else {
+            return Err(self.error_here(error_message));
+        };
+        if group.delimiter() != Delimiter::Brace {
+            return Err(self.error_here(error_message));
+        }
+        let Some(TokenTree::Group(group)) = self.advance() else {
+            unreachable!("peeked above");
+        };
+        syn::parse2(group.stream())
+    }
+
+    /// Parses an optional `else { fallback markup }`, used by both `@{...}`
+    /// and `@*{...}`.
+    fn parse_optional_else_fallback(&mut self) -> syn::Result<Option<Vec<Ast>>> {
+        match self.peek() {
             Some(TokenTree::Ident(ident)) if ident == "else" => {
                 self.advance();
                 let Some(TokenTree::Group(group)) = self.peek() else {
@@ -283,48 +395,247 @@ impl Parser {
                 let Some(TokenTree::Group(group)) = self.advance() else {
                     unreachable!("peeked above");
                 };
-                let mut fallback_parser = Parser::new(group.stream());
-                let nodes = fallback_parser.parse_nodes()?;
-                if fallback_parser.peek().is_some() {
-                    return Err(fallback_parser.error_here("unexpected token in fallback markup"));
-                }
-                Some(combine_nodes(nodes))
+                Ok(Some(Parser::new(group.stream()).parse_root()?))
             }
-            _ => None,
+            _ => Ok(None),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Code generation with static folding
+// ---------------------------------------------------------------------------
+
+fn generate(nodes: Vec<Ast>) -> TokenStream {
+    combine_parts(fold_to_parts(nodes))
+}
+
+/// One piece of a static segment: HTML rendered at expansion time, or a
+/// compile-time `const { ... }` expression spliced in via `concat!`.
+enum Piece {
+    Literal(String),
+    Const(syn::Expr),
+}
+
+/// Accumulates one static segment between dynamic holes.
+#[derive(Default)]
+struct SegmentBuffer {
+    pieces: Vec<Piece>,
+}
+
+impl SegmentBuffer {
+    /// The literal accumulator at the end of the segment, for content the
+    /// macro renders itself.
+    fn literal_mut(&mut self) -> &mut String {
+        if !matches!(self.pieces.last(), Some(Piece::Literal(_))) {
+            self.pieces.push(Piece::Literal(String::new()));
+        }
+        let Some(Piece::Literal(literal)) = self.pieces.last_mut() else {
+            unreachable!("pushed above");
         };
+        literal
+    }
 
-        Ok(match fallback {
-            None => quote! {
-                ::afterglow::Node::pending(async move { (#expression).await })
-            },
-            Some(fallback) => quote! {
-                ::afterglow::Node::pending_with_fallback(
-                    async move { (#expression).await },
-                    #fallback,
-                )
-            },
-        })
+    fn push_const(&mut self, expression: syn::Expr) {
+        self.pieces.push(Piece::Const(expression));
     }
 }
 
-fn combine_nodes(mut nodes: Vec<TokenStream>) -> TokenStream {
-    match nodes.len() {
-        0 => quote! { ::afterglow::Node::Fragment(::std::vec::Vec::new()) },
-        1 => nodes.pop().expect("length checked above"),
-        _ => quote! { ::afterglow::Node::fragment(::std::vec![#(#nodes),*]) },
+/// Folds a node list into alternating parts: pre-rendered `&'static str`
+/// segments for everything static, and one expression per dynamic hole.
+fn fold_to_parts(nodes: Vec<Ast>) -> Vec<TokenStream> {
+    let mut buffer = SegmentBuffer::default();
+    let mut parts = Vec::new();
+    fold_nodes(nodes, &mut buffer, &mut parts);
+    flush(&mut buffer, &mut parts);
+    parts
+}
+
+fn fold_nodes(nodes: Vec<Ast>, buffer: &mut SegmentBuffer, parts: &mut Vec<TokenStream>) {
+    for node in nodes {
+        match node {
+            Ast::Text(text) => escape_text_into(&text, buffer.literal_mut()),
+            Ast::ConstHtml(expression) => buffer.push_const(expression),
+            Ast::Interpolation(expression) => {
+                flush(buffer, parts);
+                parts.push(quote! { ::afterglow::Render::into_node(#expression) });
+            }
+            Ast::Pending { future, fallback } => {
+                flush(buffer, parts);
+                parts.push(match fallback {
+                    None => quote! {
+                        ::afterglow::Node::pending(async move { (#future).await })
+                    },
+                    Some(fallback) => {
+                        let fallback = combine_parts(fold_to_parts(fallback));
+                        quote! {
+                            ::afterglow::Node::pending_with_fallback(
+                                async move { (#future).await },
+                                #fallback,
+                            )
+                        }
+                    }
+                });
+            }
+            Ast::Stream { source, fallback } => {
+                flush(buffer, parts);
+                parts.push(match fallback {
+                    None => quote! {
+                        ::afterglow::Node::stream(#source)
+                    },
+                    Some(fallback) => {
+                        let fallback = combine_parts(fold_to_parts(fallback));
+                        quote! {
+                            ::afterglow::Node::stream_with_fallback(#source, #fallback)
+                        }
+                    }
+                });
+            }
+            Ast::Element {
+                tag,
+                attributes,
+                children,
+            } => {
+                let all_attributes_static = attributes
+                    .iter()
+                    .all(|attribute| !matches!(attribute.value, AttributeValue::Expression(_)));
+
+                if all_attributes_static {
+                    let out = buffer.literal_mut();
+                    out.push('<');
+                    out.push_str(&tag);
+                    for attribute in attributes {
+                        out.push(' ');
+                        out.push_str(&attribute.name);
+                        match attribute.value {
+                            AttributeValue::Bare => {}
+                            AttributeValue::Literal(value) => {
+                                out.push_str("=\"");
+                                escape_attribute_into(&value, out);
+                                out.push('"');
+                            }
+                            AttributeValue::Expression(_) => unreachable!("checked above"),
+                        }
+                    }
+                    out.push('>');
+                    // Void elements ignore children and have no closing tag,
+                    // matching the runtime renderer.
+                    if !is_void_element(&tag) {
+                        fold_nodes(children, buffer, parts);
+                        let out = buffer.literal_mut();
+                        out.push_str("</");
+                        out.push_str(&tag);
+                        out.push('>');
+                    }
+                } else {
+                    // A dynamic attribute value can only be escaped at
+                    // runtime, so this element keeps its structured form; its
+                    // children still fold.
+                    flush(buffer, parts);
+                    let attributes: Vec<_> =
+                        attributes.into_iter().map(attribute_tokens).collect();
+                    let children = fold_to_parts(children);
+                    parts.push(quote! {
+                        ::afterglow::Node::element(
+                            #tag,
+                            ::std::vec![#(#attributes),*],
+                            ::std::vec![#(#children),*],
+                        )
+                    });
+                }
+            }
+        }
     }
 }
 
-fn build_element(
-    tag: &str,
-    attributes: Vec<TokenStream>,
-    children: Vec<TokenStream>,
-) -> TokenStream {
-    quote! {
-        ::afterglow::Node::element(
-            #tag,
-            ::std::vec![#(#attributes),*],
-            ::std::vec![#(#children),*],
-        )
+fn flush(buffer: &mut SegmentBuffer, parts: &mut Vec<TokenStream>) {
+    let pieces: Vec<Piece> = std::mem::take(&mut buffer.pieces)
+        .into_iter()
+        .filter(|piece| !matches!(piece, Piece::Literal(literal) if literal.is_empty()))
+        .collect();
+    if pieces.is_empty() {
+        return;
+    }
+
+    // A plain segment stays a plain string literal; segments containing
+    // `const { ... }` pieces go through `concat!`, which eagerly expands
+    // built-in literal macros like `env!` and still yields one
+    // `&'static str` — so const-constructibility is preserved either way.
+    if let [Piece::Literal(segment)] = pieces.as_slice() {
+        parts.push(quote! {
+            ::afterglow::Node::Html(::std::borrow::Cow::Borrowed(#segment))
+        });
+        return;
+    }
+
+    let arguments = pieces.into_iter().map(|piece| match piece {
+        Piece::Literal(literal) => quote! { #literal },
+        Piece::Const(expression) => quote! { #expression },
+    });
+    parts.push(quote! {
+        ::afterglow::Node::Html(::std::borrow::Cow::Borrowed(
+            ::std::concat!(#(#arguments),*),
+        ))
+    });
+}
+
+fn combine_parts(mut parts: Vec<TokenStream>) -> TokenStream {
+    match parts.len() {
+        0 => quote! { ::afterglow::Node::Html(::std::borrow::Cow::Borrowed("")) },
+        1 => parts.pop().expect("length checked above"),
+        _ => quote! { ::afterglow::Node::fragment(::std::vec![#(#parts),*]) },
+    }
+}
+
+fn attribute_tokens(attribute: Attribute) -> TokenStream {
+    let name = attribute.name;
+    let value = match attribute.value {
+        AttributeValue::Bare => quote! { ::std::option::Option::None },
+        AttributeValue::Literal(value) => quote! {
+            ::std::option::Option::Some(::std::string::String::from(#value))
+        },
+        AttributeValue::Expression(expression) => quote! {
+            ::std::option::Option::Some(::std::string::ToString::to_string(&(#expression)))
+        },
+    };
+    quote! { (::std::borrow::Cow::Borrowed(#name), #value) }
+}
+
+// ---------------------------------------------------------------------------
+// Static rendering rules — keep in sync with the runtime renderer
+// (afterglow/src/escape.rs and afterglow/src/render.rs), so content folded at
+// expansion time is byte-identical to what runtime rendering would produce.
+// ---------------------------------------------------------------------------
+
+const VOID_ELEMENTS: &[&str] = &[
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source",
+    "track", "wbr",
+];
+
+fn is_void_element(tag: &str) -> bool {
+    VOID_ELEMENTS.contains(&tag)
+}
+
+fn escape_text_into(input: &str, out: &mut String) {
+    for character in input.chars() {
+        match character {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            character => out.push(character),
+        }
+    }
+}
+
+fn escape_attribute_into(input: &str, out: &mut String) {
+    for character in input.chars() {
+        match character {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            character => out.push(character),
+        }
     }
 }

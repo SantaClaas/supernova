@@ -1,19 +1,32 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 
 use async_stream::stream;
 use bytes::Bytes;
-use futures::future::BoxFuture;
-use futures::stream::{FuturesUnordered, Stream, StreamExt};
+use futures::stream::{BoxStream, SelectAll, Stream, StreamExt};
 
 use crate::node::{Node, Render};
-use crate::shell::{Shell, SlotId, render_shell};
+use crate::shell::{HtmlBuf, Shell, SlotId, SlotSource, render_shell};
 
-/// A slot's future tagged with its id so we know which placeholder to fill.
-type TaggedFuture = BoxFuture<'static, (SlotId, Node)>;
+/// A slot event tagged with the slot's id: a value to patch into the slot,
+/// or the end of the slot's source (used by the ordered driver's gate).
+enum SlotEvent {
+    Value(SlotId, Node),
+    End(SlotId),
+}
 
-fn tag(id: SlotId, future: BoxFuture<'static, Node>) -> TaggedFuture {
-    Box::pin(async move { (id, future.await) })
+type TaggedStream = BoxStream<'static, SlotEvent>;
+
+fn tag(id: SlotId, source: SlotSource) -> TaggedStream {
+    let values: BoxStream<'static, Node> = match source {
+        SlotSource::Future(future) => Box::pin(futures::stream::once(future)),
+        SlotSource::Stream(stream) => stream,
+    };
+    Box::pin(
+        values
+            .map(move |node| SlotEvent::Value(id, node))
+            .chain(futures::stream::once(async move { SlotEvent::End(id) })),
+    )
 }
 
 fn template_chunk(id: SlotId, html: &str) -> Bytes {
@@ -21,16 +34,25 @@ fn template_chunk(id: SlotId, html: &str) -> Bytes {
 }
 
 /// Renders `root` as a byte stream: the shell (with placeholder markers for
-/// pending subtrees) is yielded first, then each resolved subtree is yielded
-/// as a `<template for="N">...</template>` chunk **in completion order** —
-/// whichever future resolves first is streamed first.
+/// pending subtrees) is yielded first, then resolved content is yielded as
+/// `<template for="N">...</template>` chunks **in completion order** —
+/// whichever slot produces a value first is streamed first.
 ///
-/// Resolved subtrees may themselves contain pending nodes; those are
-/// registered as new slots and filled by later chunks, to any nesting depth.
+/// Future slots ([`Node::Pending`]) produce exactly one chunk; stream slots
+/// ([`Node::Stream`]) produce one chunk per value, in value order — per the
+/// declarative partial updates format, repeated patches at the same marker
+/// express a live-updating region. Values may themselves contain new pending
+/// or stream holes; those are registered as new slots and filled by later
+/// chunks, to any nesting depth.
+///
+/// The stream terminates once every future has resolved and every stream
+/// source has ended — an infinite source means a never-ending response.
+/// Sources are only polled when the response stream is polled, so a fast
+/// producer is throttled by the client rather than buffered.
 ///
 /// Dropping the stream (e.g. because the client disconnected) drops all
-/// still-pending widget futures — cancellation is free as long as widget
-/// futures are not `tokio::spawn`ed (see the crate docs).
+/// still-pending widget futures and stream sources — cancellation is free as
+/// long as they are not `tokio::spawn`ed (see the crate docs).
 ///
 /// The stream never yields `Err`; the item type is `io::Result<Bytes>` so it
 /// can feed `axum::body::Body::from_stream` directly.
@@ -39,30 +61,34 @@ pub fn render_stream(root: impl Render) -> impl Stream<Item = io::Result<Bytes>>
     stream! {
         let mut next_id: SlotId = 0;
         let shell = render_shell(root, &mut next_id);
-        let mut pending: FuturesUnordered<TaggedFuture> = shell
-            .slots
-            .into_iter()
-            .map(|(id, future)| tag(id, future))
-            .collect();
+        let mut pending: SelectAll<TaggedStream> = futures::stream::select_all(
+            shell.slots.into_iter().map(|(id, source)| tag(id, source)),
+        );
 
-        yield Ok(Bytes::from(shell.html));
+        yield Ok(shell.html.into_bytes());
 
-        while let Some((id, node)) = pending.next().await {
+        while let Some(event) = pending.next().await {
+            let SlotEvent::Value(id, node) = event else {
+                continue;
+            };
             let Shell { html, slots } = render_shell(node, &mut next_id);
-            for (new_id, future) in slots {
-                pending.push(tag(new_id, future));
+            for (new_id, source) in slots {
+                pending.push(tag(new_id, source));
             }
-            yield Ok(template_chunk(id, &html));
+            yield Ok(template_chunk(id, html.as_str()));
         }
     }
 }
 
-/// Like [`render_stream`], but fills slots **in registration order** (slot 0
-/// first, then 1, ...) regardless of which future resolves first. Futures
-/// still run concurrently; completed chunks are buffered until it is their
-/// turn. Useful for deterministic snapshot testing.
+/// Like [`render_stream`], but slots unblock **in registration order**: slot
+/// N's first chunk is emitted before anything from slot N+1. A slot unblocks
+/// once it produces its first value (or its source ends without one — the
+/// fallback then simply remains); afterwards its further values pass through
+/// in arrival order. Sources still run concurrently; early chunks are
+/// buffered until it is their slot's turn. Useful for deterministic snapshot
+/// testing.
 ///
-/// Slots registered by resolved subtrees always get higher ids than the slot
+/// Slots registered by resolved content always get higher ids than the slot
 /// that produced them, so waiting for ids in ascending order cannot deadlock.
 pub fn render_stream_ordered(
     root: impl Render,
@@ -71,26 +97,52 @@ pub fn render_stream_ordered(
     stream! {
         let mut next_id: SlotId = 0;
         let shell = render_shell(root, &mut next_id);
-        let mut pending: FuturesUnordered<TaggedFuture> = shell
-            .slots
-            .into_iter()
-            .map(|(id, future)| tag(id, future))
-            .collect();
+        let mut pending: SelectAll<TaggedStream> = futures::stream::select_all(
+            shell.slots.into_iter().map(|(id, source)| tag(id, source)),
+        );
 
-        yield Ok(Bytes::from(shell.html));
+        yield Ok(shell.html.into_bytes());
 
-        let mut buffered: BTreeMap<SlotId, String> = BTreeMap::new();
+        // The gate: `emit_next` is the lowest still-blocked slot. Chunks for
+        // blocked slots are buffered; ends without a value are remembered so
+        // an empty source cannot jam the gate.
+        let mut buffered: BTreeMap<SlotId, Vec<HtmlBuf>> = BTreeMap::new();
+        let mut ended: BTreeSet<SlotId> = BTreeSet::new();
         let mut emit_next: SlotId = 0;
-        while let Some((id, node)) = pending.next().await {
-            let Shell { html, slots } = render_shell(node, &mut next_id);
-            for (new_id, future) in slots {
-                pending.push(tag(new_id, future));
-            }
-            buffered.insert(id, html);
 
-            while let Some(html) = buffered.remove(&emit_next) {
-                yield Ok(template_chunk(emit_next, &html));
-                emit_next += 1;
+        while let Some(event) = pending.next().await {
+            match event {
+                SlotEvent::Value(id, node) => {
+                    let Shell { html, slots } = render_shell(node, &mut next_id);
+                    for (new_id, source) in slots {
+                        pending.push(tag(new_id, source));
+                    }
+                    if id < emit_next {
+                        yield Ok(template_chunk(id, html.as_str()));
+                    } else {
+                        buffered.entry(id).or_default().push(html);
+                    }
+                }
+                SlotEvent::End(id) => {
+                    if id >= emit_next {
+                        ended.insert(id);
+                    }
+                }
+            }
+
+            // Advance the gate as far as possible.
+            loop {
+                if let Some(chunks) = buffered.remove(&emit_next) {
+                    ended.remove(&emit_next);
+                    for html in chunks {
+                        yield Ok(template_chunk(emit_next, html.as_str()));
+                    }
+                    emit_next += 1;
+                } else if ended.remove(&emit_next) {
+                    emit_next += 1;
+                } else {
+                    break;
+                }
             }
         }
     }
