@@ -1,3 +1,5 @@
+#:schema https://dystroy.org/bacon/.bacon.schema.json
+
 # This is a configuration file for the bacon tool
 #
 # Complete help on configuration: https://dystroy.org/bacon/config/
@@ -37,6 +39,16 @@ need_stdout = false
 command = ["cargo", "clippy", "--all-targets"]
 need_stdout = false
 
+# Run clippy in pedantic mode
+# The 'dismiss' feature may come handy
+[jobs.pedantic]
+command = [
+	"cargo", "clippy",
+	"--",
+	"-W", "clippy::pedantic",
+]
+need_stdout = false
+
 # This job lets you run
 # - all tests: bacon test
 # - a specific test: bacon test -- config::test_default_files
@@ -47,12 +59,8 @@ need_stdout = true
 
 [jobs.nextest]
 command = [
-    "cargo",
-    "nextest",
-    "run",
-    "--hide-progress-bar",
-    "--failure-output",
-    "final",
+    "cargo", "nextest", "run",
+    "--hide-progress-bar", "--failure-output", "final"
 ]
 need_stdout = true
 analyzer = "nextest"
@@ -66,19 +74,20 @@ need_stdout = false
 [jobs.doc-open]
 command = ["cargo", "doc", "--no-deps", "--open"]
 need_stdout = false
-on_success = "back"                               # so that we don't open the browser at each change
+on_success = "back" # so that we don't open the browser at each change
 
 # You can run your application and have the result displayed in bacon,
 # if it makes sense for this crate.
 [jobs.run]
 command = [
-    "cargo",
-    "run",
+    "cargo", "run",
     # put launch parameters for your program behind a `--` separator
 ]
 need_stdout = true
 allow_warnings = true
 background = true
+show_command_error_code = true
+scroll_anchor = "auto"
 
 # Run your long-running application (eg server) and have the result displayed in bacon.
 # For programs that never stop (eg a server), `background` is set to false
@@ -92,8 +101,7 @@ background = true
 # long running programs (uncomment it if you need it)
 [jobs.run-long]
 command = [
-    "cargo",
-    "run",
+    "cargo", "run",
     # put launch parameters for your program behind a `--` separator
 ]
 need_stdout = true
@@ -101,6 +109,19 @@ allow_warnings = true
 background = false
 on_change_strategy = "kill_then_restart"
 # kill = ["pkill", "-TERM", "-P"]
+scroll_anchor = "auto"
+
+[jobs.run-shlepper]
+command = [
+    "cargo", "run", "--package", "shlepper"
+    # put launch parameters for your program behind a `--` separator
+]
+need_stdout = true
+allow_warnings = true
+background = false
+on_change_strategy = "kill_then_restart"
+# kill = ["pkill", "-TERM", "-P"]
+scroll_anchor = "auto"
 
 # This parameterized job runs the example of your choice, as soon
 # as the code compiles.
@@ -118,10 +139,3 @@ allow_warnings = true
 [keybindings]
 # alt-m = "job:my-job"
 c = "job:clippy-all" # comment this to have 'c' run clippy on only the default target
-
-[jobs.dev]
-command = ["cargo", "run", "--package", "supernova", "--bin", "supernova"]
-need_stdout = true
-allow_warnings = true
-background = false
-on_change_strategy = "kill_then_restart"
