@@ -1,11 +1,13 @@
+mod cookie;
 mod database;
 mod error;
 mod secret;
+mod state;
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use crate::error::Error;
+use crate::{cookie::Key, error::Error};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {

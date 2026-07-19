@@ -4,11 +4,17 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+axum = "0.8.9"
+axum-extra = { version = "0.12.6", features = ["cookie-private"] }
 base64 = "0.22.1"
 bitwarden = "2.1.0"
+bitwarden-core = "3.0.0"
 bollard = "0.21.0"
+cookie = "0.18.1"
+#TODO make this only available in development. Not needed in production.- 
 dotenvy = "0.15.7"
 libsql = "0.9.30"
+serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.19"
 tokio = { version = "1.53.0", features = ["full"] }
 tracing = "0.1.44"
