@@ -53,6 +53,8 @@ pub(super) enum Error {
     BwsError(#[from] bitwarden::error::Error),
     #[error("Error logging in to Bitwarden: {0}")]
     LoginError(#[from] LoginError),
+    #[error("Error fetching secrets by id from Bitwarden Secrets Manager: {0}")]
+    GetSecretsError(String),
     #[error("Error authenticating with Bitwarden")]
     BwsAuthenticationFailed,
     #[error("Error loading secret id from environment variables: {0}")]
@@ -115,7 +117,11 @@ pub(super) async fn setup() -> Result<Secrets, Error> {
         ids: ids_by_variable.keys().copied().collect(),
     };
 
-    let responses = client.secrets().get_by_ids(request).await?;
+    let responses = client
+        .secrets()
+        .get_by_ids(request)
+        .await
+        .map_err(|error| Error::GetSecretsError(error.to_string()))?;
     let mut user_secret = None;
     let mut cookie_signing_secret = None;
     let mut lib_sql_auth_token = None;
