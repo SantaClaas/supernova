@@ -24,7 +24,7 @@ impl From<[u8; Key::LENGTH]> for Key {
 
 impl FromRef<State> for AxumKey {
     fn from_ref(state: &State) -> Self {
-        state.cookie_key.clone()
+        state.cookie_key.0.clone()
     }
 }
 

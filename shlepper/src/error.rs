@@ -1,19 +1,13 @@
-use crate::{database, secret};
+use std::io;
+
+use crate::state;
 
 #[derive(thiserror::Error, Debug)]
 pub(super) enum Error {
-    #[error("Error setting up secrets")]
-    SecretError(#[from] secret::Error),
-    #[error("Error setting up docker")]
-    DockerError(#[from] bollard::errors::Error),
-    #[error("Error decoding cookie key")]
-    CookieDecodeError(base64::DecodeError),
-    #[error("Bad cookie key length")]
-    BadCookieKeyLength { expected: usize, actual: usize },
-    #[error("Error reading database URL: {0}")]
-    DatabaseUrlError(#[from] std::env::VarError),
-    #[error("Bad database key encoding: {0}")]
-    BadDatabaseKey(base64::DecodeError),
-    #[error("Error initializing database: {0}")]
-    DatabaseError(#[from] database::InitializeError),
+    #[error("Error initializing state: {0}")]
+    InitializeState(#[from] state::InitializeError),
+    #[error("Error setting up TCP listener: {0}")]
+    TcpListener(io::Error),
+    #[error("Error serving axum app: {0}")]
+    AxumServe(io::Error),
 }

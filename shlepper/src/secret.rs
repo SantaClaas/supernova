@@ -54,7 +54,7 @@ pub(super) enum Error {
     #[error("Error logging in to Bitwarden: {0}")]
     LoginError(#[from] LoginError),
     #[error("Error fetching secrets by id from Bitwarden Secrets Manager: {0}")]
-    GetSecretsError(String),
+    GetSecretsError(#[source] Box<dyn std::error::Error + Send + Sync>),
     #[error("Error authenticating with Bitwarden")]
     BwsAuthenticationFailed,
     #[error("Error loading secret id from environment variables: {0}")]
@@ -121,7 +121,7 @@ pub(super) async fn setup() -> Result<Secrets, Error> {
         .secrets()
         .get_by_ids(request)
         .await
-        .map_err(|error| Error::GetSecretsError(error.to_string()))?;
+        .map_err(|error| Error::GetSecretsError(Box::new(error)))?;
     let mut user_secret = None;
     let mut cookie_signing_secret = None;
     let mut lib_sql_auth_token = None;

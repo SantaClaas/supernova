@@ -1,13 +1,20 @@
 mod cookie;
 mod database;
+mod docker;
 mod error;
+mod garbage_collector;
+mod public_directory;
 mod secret;
+mod shutdown_signal;
 mod state;
 
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use std::net::Ipv4Addr;
+
+use axum::Router;
+use tokio::net::TcpListener;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use crate::{cookie::Key, error::Error};
+use crate::{error::Error, state::State};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -27,26 +34,30 @@ async fn main() -> Result<(), Error> {
     #[cfg(debug_assertions)]
     dotenvy::dotenv().expect("Expected to load .env file in development");
 
-    let secrets = secret::setup().await.inspect_err(|error| {
-        tracing::error!("Error setting up secrets {}", error);
-    })?;
+    let state = State::initialize().await?;
 
-    let url = std::env::var("LIBSQL_URL").map_err(Error::DatabaseUrlError)?;
-    let key = URL_SAFE_NO_PAD
-        .decode(secrets.database_encryption_key.as_ref())
-        .map_err(Error::BadDatabaseKey)?
-        .into();
+    // Set up background workers
+    let _handle = tokio::spawn(garbage_collector::start(state.clone()));
 
-    let connection = database::initialize(url, secrets.lib_sql_auth_token.clone(), key).await?;
+    let app = Router::new()
+        .fallback_service(public_directory::serve())
+        .with_state(state);
 
-    let cookie_key: [u8; Key::LENGTH] = URL_SAFE_NO_PAD
-        .decode(secrets.cookie_signing_secret.as_ref())
-        .map_err(Error::CookieDecodeError)?
-        .try_into()
-        .map_err(|secret: Vec<u8>| Error::BadCookieKeyLength {
-            expected: Key::LENGTH,
-            actual: secret.len(),
-        })?;
+    let address = if cfg!(debug_assertions) {
+        Ipv4Addr::LOCALHOST
+    } else {
+        Ipv4Addr::UNSPECIFIED
+    };
+
+    let listener = TcpListener::bind((address, 3001))
+        .await
+        .map_err(Error::TcpListener)?;
+
+    tracing::info!("listening on http://{}", listener.local_addr().unwrap());
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal::get())
+        .await
+        .map_err(Error::AxumServe)?;
 
     Ok(())
 }

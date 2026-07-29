@@ -91,7 +91,10 @@ const FOOTER: Node = html! {
 async fn index() -> Response {
     let page = html! {
         <html>
-            <head><title>"afterglow demo"</title></head>
+            <head>
+              <title>"afterglow demo"</title>
+              <script src="https://unpkg.com/template-for-polyfill"></script>
+            </head>
             <body>
                 <h1>"Dashboard"</h1>
                 <section>
