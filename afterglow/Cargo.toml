@@ -1,0 +1,16 @@
+[package]
+name = "afterglow"
+version = "0.1.0"
+edition = "2024"
+description = "Suspense-style streaming HTML rendering: emit a shell immediately, backfill pending subtrees as their futures resolve."
+license = "Apache-2.0"
+
+[dependencies]
+afterglow-macros = { path = "../afterglow-macros" }
+async-stream = "0.3"
+bytes = "1"
+futures = "0.3"
+
+[dev-dependencies]
+axum = "0.8.9"
+tokio = { version = "1.52.1", features = ["macros", "rt-multi-thread", "time", "test-util"] }

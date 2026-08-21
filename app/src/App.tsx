@@ -111,8 +111,12 @@ function App() {
                 }}
               >
                 <time class="row-span-full block">
-                  <span>{weekday}</span>
-                  <span class="block">{date.toLocaleString(undefined, { day: "2-digit" })}</span>
+                  <span class="block text-end text-xl font-semibold tracking-wide text-slate-50">
+                    {weekday}
+                  </span>
+                  <span class="block text-end text-5xl font-bold tracking-tight text-slate-50">
+                    {date.toLocaleString(undefined, { day: "2-digit" })}
+                  </span>
                 </time>
                 <For each={item.entries}>
                   {([from, to]) => {
@@ -121,10 +125,21 @@ function App() {
 
                     const duration = toTime.since(fromTime);
                     return (
-                      <section class="col-start-2">
-                        <input type="time" value={from} step="900" />
-                        <input type="time" value={to} step="900" />
-                        <time>
+                      <section class="col-start-2 flex max-h-min items-center gap-2 text-lg">
+                        <input
+                          type="time"
+                          value={from}
+                          step="900"
+                          class="rounded-4xl bg-slate-50/75 py-1 pr-1.5 pl-3"
+                        />
+                        <span class="font-black text-slate-50">&ndash;</span>
+                        <input
+                          type="time"
+                          value={to}
+                          step="900"
+                          class="rounded-4xl bg-slate-50/75 py-1 pr-1.5 pl-3"
+                        />
+                        <time class="rounded-4xl bg-slate-50/75 px-3 py-1">
                           {duration.toLocaleString(undefined, {
                             style: "digital",
                             hours: "2-digit",

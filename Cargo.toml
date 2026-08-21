@@ -1,3 +1,10 @@
 [workspace]
 resolver = "2"
-members = ["supernova", "supernovi", "web-shove"]
+members = [
+    "afterglow",
+    "afterglow-macros",
+    "shlepper",
+    "supernova",
+    "supernovi",
+    "web-shove",
+]
