@@ -35,6 +35,11 @@ pub(crate) struct AppState {
 
 #[tokio::main]
 async fn main() {
+    // Dependencies enable both the ring and aws-lc-rs rustls backends, so rustls can't pick a default
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("Error installing rustls crypto provider");
+
     registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
