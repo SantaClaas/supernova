@@ -35,6 +35,11 @@ pub(crate) struct AppState {
 
 #[tokio::main]
 async fn main() {
+    // reqwest is built without a rustls crypto provider and panics unless a default is installed
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Error installing rustls crypto provider");
+
     registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()

@@ -22,7 +22,7 @@ pub(super) enum ErrorType {
 }
 
 #[derive(Debug)]
-enum Secret {
+pub(super) enum Secret {
     UserSecret,
     VapidPrivateKey,
 }
@@ -45,6 +45,11 @@ pub(super) enum Error {
     BwsAuthenticationFailed,
     #[error("Error loading secret id from environment variables: {0}")]
     LoadSecretIdError(#[from] LoadSecretIdError),
+    // The Bitwarden SDK does not export its secrets manager error type
+    #[error("Error getting secrets from Bitwarden Secrets Manager: {0}")]
+    BwsGetSecrets(#[source] Box<dyn std::error::Error + Send + Sync>),
+    #[error("Secret {0:?} was not provided by Bitwarden Secrets Manager")]
+    SecretNotProvided(Secret),
 }
 
 #[derive(Clone)]
@@ -95,44 +100,46 @@ pub(super) async fn setup() -> Result<Secrets, Error> {
         ids: ids_by_variable.keys().copied().collect(),
     };
 
-    let _a = client.secrets().get_by_ids(request).await;
-    todo!()
-    // let responses = client.secrets().get_by_ids(request).await?;
+    let responses = client
+        .secrets()
+        .get_by_ids(request)
+        .await
+        .map_err(|error| Error::BwsGetSecrets(Box::new(error)))?;
 
-    // let mut user_secret = None;
-    // let mut vapid_private_key = None;
-    // for secret in responses.data {
-    //     let Some(variable) = ids_by_variable.get(&secret.id) else {
-    //         tracing::warn!(
-    //             "Received secret with id {} that was not requested",
-    //             secret.id
-    //         );
-    //         continue;
-    //     };
+    let mut user_secret = None;
+    let mut vapid_private_key = None;
+    for secret in responses.data {
+        let Some(variable) = ids_by_variable.get(&secret.id) else {
+            tracing::warn!(
+                "Received secret with id {} that was not requested",
+                secret.id
+            );
+            continue;
+        };
 
-    //     match *variable {
-    //         USER_SECRET_ID_VARIABLE => user_secret = Some(secret.value),
-    //         VAPID_PRIVATE_KEY_ID_VARIABLE => vapid_private_key = Some(secret.value),
-    //         //TODO make ids an enum to check compile time because this branch should not be reachable
-    //         _ => {
-    //             tracing::warn!(
-    //                 "Received unknown secret with id {} and variable {}",
-    //                 secret.id,
-    //                 variable
-    //             );
-    //         }
-    //     }
-    // }
+        match *variable {
+            USER_SECRET_ID_VARIABLE => user_secret = Some(secret.value),
+            VAPID_PRIVATE_KEY_ID_VARIABLE => vapid_private_key = Some(secret.value),
+            //TODO make ids an enum to check compile time because this branch should not be reachable
+            _ => {
+                tracing::warn!(
+                    "Received unknown secret with id {} and variable {}",
+                    secret.id,
+                    variable
+                );
+            }
+        }
+    }
 
-    // let user_secret = user_secret
-    //     .ok_or_else(|| Error::SecretNotProvided(Secret::UserSecret))?
-    //     .into();
-    // let vapid_private_key = vapid_private_key
-    //     .ok_or_else(|| Error::SecretNotProvided(Secret::VapidPrivateKey))?
-    //     .into();
+    let user_secret = user_secret
+        .ok_or(Error::SecretNotProvided(Secret::UserSecret))?
+        .into();
+    let vapid_private_key = vapid_private_key
+        .ok_or(Error::SecretNotProvided(Secret::VapidPrivateKey))?
+        .into();
 
-    // Ok(Secrets {
-    //     user_secret,
-    //     vapid_private_key,
-    // })
+    Ok(Secrets {
+        user_secret,
+        vapid_private_key,
+    })
 }
